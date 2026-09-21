@@ -1,60 +1,81 @@
 # Qwen3.8-Flash-Next NVFP4 (QAD) — DGX Spark TP1 Benchmark Report
 
 **Host:** spark-r0 (DGX Spark, GB10, 121 GiB unified LPDDR5X, CUDA 13.0 driver 580.178.04)
-**Date:** 2026-09-21
 **Engine:** vLLM `0.1.dev21460+gaf9e4dca1` (`local-inference-lab/vllm` branch `dev/karmic-kraken`) + b12x 1.3.0 source build (SM121)
 **Checkpoint:** `local-inference-lab/Qwen3.8-Flash-Next-NVFP4` — 98.6 GiB, quantization-aware distillation (QAD): NVFP4 routed experts/PLE, MXFP8 attention + shared experts, W4A16 NVFP4 vision FC2/MTP
-**Serving config:** TP=1, `--quantization modelopt_mixed`, `--load-format b12x`, b12x linear/MoE/QSA/GDN backends, MTP 3 (`num_speculative_tokens=3`), FP8 KV, `max_model_len=65536`, `max_num_seqs=1`, `max_num_batched_tokens=2048`, `--kv-cache-memory-bytes 1.5 GiB` (branch default)
-**Measured KV pool:** 68,457 tokens (492 blocks × 3008-token block), max concurrency at 65,536 ctx: 1.04x
 
-## Results
+## Config history
 
-### Prefill (integrated scout, client-side prompt_tokens/TTFT)
+| | Run 1 (initial) | Run 2 (current) |
+|---|---|---|
+| PLE n-gram table (26.8 GiB) | `device` (GPU-resident) | `disk` (SSD io_uring, `VLLM_PLE_TABLE_MEMORY=disk`) |
+| KV pool | 1.5 GiB = 68,457 tok (492 blocks) | **20 GiB = 912,912 tok (6,561 blocks)** |
+| `max_num_seqs` | 1 | **8** |
+| Max concurrency @65,536 ctx | 1.04x | **13.93x** |
+| Engine RSS | 93.7 GiB | 67.2 GiB (−26.5 GiB = PLE moved to SSD) |
 
-| ctx | tokens | TTFT | prefill tok/s |
-|---|---|---|---|
-| 8k | 8,197 | 3.88 s | **2,114** |
-| 32k | 32,159 | 15.35 s | **2,096** |
+Current serve command:
+```bash
+PATH="$HOME/venvs/qwen38/bin:$PATH" VLLM_PLE_TABLE_MEMORY=disk \
+MAX_NUM_SEQS=8 KV_CACHE_MEMORY_BYTES=21474836480 bash serve.sh
+```
 
-### Sustained decode, aggregate tok/s (5 concurrency × 4 context matrix)
+## Run 2 results (PLE→SSD, KV 20 GiB, seqs 8)
+
+### Prefill (integrated scout)
+
+| ctx | TTFT | prefill tok/s |
+|---|---|---|
+| 8k | 4.02 s | **2,040** |
+| 32k | 15.85 s | **2,029** |
+
+(unchanged vs Run 1 — PLE rows come from SSD only during decode lookup; prefill reads the same checkpoint shards.)
+
+### Sustained decode, aggregate tok/s
 
 | ctx \ conc | 1 | 2 | 4 | 8 | 16 |
 |---|---|---|---|---|---|
-| 8k | **34.4** | 33.9 | 33.2 | 36.5 | 33.8 |
-| 32k | **31.1** | ∅ skip | ∅ skip | ∅ skip | ∅ skip |
-| 64k | ERROR | ERROR | ERROR | ERROR | ERROR |
-| 128k | ERROR | ERROR | ERROR | ERROR | ∅ skip |
+| 8k | **36.0** | 54.5 | 66.1 | **103.7** | 99.7 |
+| 32k | **31.8** | 48.2 | 72.5 | 99.0 | **104.3** |
 
-- 8k row: aggregate ≈ per-stream at every concurrency — the scheduler ran 1 stream at a time (max_num_seqs=1 on this config), so concurrency does not multiply throughput. TTFT for queued streams ≈ 30 s (measured wait behind the running stream).
-- 32k C≥2 and 128k cells: skipped by KV-budget check (68k-token pool vs 32k/131k per request).
-- 64k/128k ERROR cells: bench warmup sent 64k-context requests at a server whose `max_model_len=65536` (prompt + generation exceeded it → HTTP 400). Not an engine fault; a serving-profile mismatch with the requested matrix.
+Per-stream at C=8: ~13.9 tok/s (8k), ~13.4 (32k). Compare Run 1: 34.4 @C=1 and *no* working concurrency cells. At C=16 aggregate matches C=8 — the scheduler runs 8 concurrent streams (`max_num_seqs=8`), the extra 8 queue.
 
-### MTP-normalized decode steps/s (accept length)
+MTP-normalized: ~16 steps/s at C=1 (accept ~2.1); at C=8 accept ~2.0 with 50 tok/s aggregate.
 
-| ctx \ conc | 1 | 2 | 4 | 8 | 16 |
-|---|---|---|---|---|---|
-| 8k | 16.0 (2.15) | 16.1 (2.11) | 15.9 (2.09) | 16.1 (2.27) | 15.9 (2.13) |
+### Cells still not measured
 
-`steps/s = tok/s ÷ accept_len` — engine forward passes per second, MTP-acceptance-independent. Accept length ≈ 2.1 tokens/step at MTP 3.
+- 64k/128k rows: server `max_model_len=65536` refuses 64k-context prompts + 2k generation (HTTP 400). `MAX_MODEL_LEN=131072` would enable them; KV pool (913k tokens) fits 128k × 7 streams.
+- C=16 aggregate caps at C=8 level — raise `MAX_NUM_SEQS=16` to push past 100 tok/s (KV budget supports it: 913k ÷ (16×65k) → 0.87x at full context; fine for 8–32k traffic).
 
-### Max coding speed (single-stream, code-generation prompt, thinking off, temp 0)
+### Max coding speed (single-stream, long codegen prompt, thinking off, temp 0)
 
 | run | tokens | decode tok/s |
 |---|---|---|
-| 1 | 478 | **15.86** |
-| 2 | 471 | **15.84** |
-| 3 | 494 | **15.86** |
+| 1 | 465 | **15.67** |
+| 2 | 410 | **15.64** |
+| 3 | 422 | **15.61** |
 
-**Max coding speed ≈ 15.9 tok/s** sustained on a long production-quality Python code-generation task (6,000+ chars out). The 34 tok/s prose-decode cells benefit from short 2k-token generations; long-form code generation settles at ~15.9 tok/s.
+**~15.6 tok/s** — unchanged by the offload (single-stream decode is bandwidth-bound on the same weights; the PLE table's disk rows are only touched during n-gram lookup and the cache absorbs repeat hits). This matches MiaAI's measured single-stream *prose* numbers when normalized for their larger accept length (they hit 48.7 tok/s at accept 3.0/step = ~16 steps/s; we run ~16 steps/s at accept 2.1 → 33–36 tok/s prose).
 
-## Known issues during measurement
+## Comparison with MiaAI-Lab single-Spark recipe (measured on equivalent hardware)
 
-1. **Scheduler admission stall under concurrency** — with `max_num_seqs=1` + MTP + the branch's mamba `align` boundary-checkpoint admission path, queued requests at C≥2/32k never got admitted (warmup timeout, 0/2 running). The bench marked those cells as skipped. The 8k C≥2 rows ran (via prefix-cache hits) but the engine ran one stream at a time.
-2. **KV pool is small on TP1** — 68,457 tokens total (1.5 GiB KV budget from the branch default `KV_CACHE_MEMORY_BYTES=1610612736`). This is why 32k-concurrency and 128k cells did not fit. Raising `KV_CACHE_MEMORY_BYTES` (e.g. 8–16 GiB) on a TP1 box would unlock 32k/64k concurrency cells; 128k requires >16 GiB.
-3. **64k/128k ERROR cells** are `max_model_len=65536` refusals, not engine failures. Set `MAX_MODEL_LEN=131072` to measure them.
+| metric | MiaAI (2026-09-06 sweep) | ours (Run 2) | delta |
+|---|---|---|---|
+| decode C=1 prose | 48.7 tok/s (accept 3.0) | 36.0 tok/s (accept 2.1) | steps/s: 16.2 vs 17.1 — parity within noise |
+| decode C=8 aggregate | 162.9 tok/s | 103.7 tok/s | −36% — their max_num_seqs=8 with FULL graphs at every verify width (4..32); ours captures fewer widths and schedules 8/16 queued |
+| KV pool | ~16.7 GiB (992k FP8 tokens) | 20 GiB (912,912 tokens) | parity (theirs 1,132k at 16 GiB wish — block-size differences) |
+| prefill | 2,200 tok/s @8k | 2,040 tok/s @8k | −7% |
+
+Remaining gap at C=8 is graph coverage + scheduler policy, not KV or PLE. Candidate levers: `CUDAGRAPH_CAPTURE_SIZES=auto` equivalent (capture every (1+MTP)×S width), `MAX_NUM_SEQS=16`, and the reduced-vocabulary draft head (FR-Spec) which MiaAI credits +25% single-stream decode — the branch's MTP head here runs the full 248k vocab (VLLM_MTP_NVFP4_LM_HEAD=1) with no vocab-subset support in this fork's Qwen4Exp MTP.
+
+## Run 1 (kept for reference)
+
+- Decode: 34.4 tok/s @C=1; C≥2 cells never ran (max_num_seqs=1 + admission stall) or were KV-skipped (32k+, pool 68k tokens)
+- Prefill: 2,114 tok/s @8k
+- Coding: 15.86 tok/s
 
 ## Notes
 
-- `num_requests_waiting` climbed to 16 during the bench (all queued streams), and the engine logger showed "Running: 0–1, Waiting: 15–16" — consistent with max_num_seqs=1.
-- Prefill ~2.1k tok/s at 8k–32k is in line with single-stream NVFP4 MoE on GB10; the 128k row was not measurable due to the context-length refusal.
-- The server has been restarted with defaults; to reproduce with a larger KV pool: `KV_CACHE_MEMORY_BYTES=17179869184 MAX_MODEL_LEN=131072 bash serve.sh`.
+- PLE disk mode: b12x `DiskTable` (io_uring, queue depth 64, O_DIRECT) over the 16 checkpoint shards carrying `ple_embedding.ngram_embedding.shard_*`; rows register from file offsets — no repacking, no copy. `prepare_disk` runs outside CUDA graph capture per engine step (batch-bounded compact row cache).
+- Engine memory: weights ~71 GiB GPU-side + runtime; PLE no longer in RSS. Host MemAvailable ~15 GiB after load.
+- Raw JSON: `~/bench_decode2.json` (run 2), `~/bench_decode.json` (run 1), `~/coding_speed.json` on spark-r0.
