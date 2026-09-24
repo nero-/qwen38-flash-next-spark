@@ -1,0 +1,35 @@
+{
+  "model": {
+    "repository": "local-inference-lab/Qwen3.8-Flash-Next-NVFP4",
+    "revision": "7c4f1bc1a2d6847e0cbc01ac6b823f00251de8dd"
+  },
+  "image": "eugr/spark-vllm-b12x@sha256:5249a162cd39aa090e803243aef376e1f87f0fd4826f9249ea1ecd0c814b2c7e",
+  "remote_root": "builds/qwen-tp2",
+  "api_port": 8000,
+  "master_port": 29638,
+  "ssh_options": ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10"],
+  "ranks": [
+    {
+      "ssh": "spark-r0",
+      "peer_ssh": "spark-r0",
+      "ip": "10.100.168.2",
+      "socket_interface": "enp1s0f1np1",
+      "cables": {
+        "1": [{"interface": "enp1s0f1np1", "hca": "rocep1s0f1"}, {"interface": "enP2p1s0f1np1", "hca": "roceP2p1s0f1"}],
+        "2": [{"interface": "enp1s0f1np1", "hca": "rocep1s0f1"}, {"interface": "enP2p1s0f0np0", "hca": "roceP2p1s0f0"}]
+      }
+    },
+    {
+      "ssh": "spark-r1",
+      "peer_ssh": "10.100.168.1",
+      "ip": "10.100.168.1",
+      "socket_interface": "enp1s0f0np0",
+      "cables": {
+        "1": [{"interface": "enp1s0f0np0", "hca": "rocep1s0f0"}, {"interface": "enP2p1s0f0np0", "hca": "roceP2p1s0f0"}],
+        "2": [{"interface": "enp1s0f0np0", "hca": "rocep1s0f0"}, {"interface": "enP2p1s0f1np1", "hca": "roceP2p1s0f1"}]
+      }
+    }
+  ],
+  "default_cables": 2,
+  "default_profile": "hc-adaptive"
+}

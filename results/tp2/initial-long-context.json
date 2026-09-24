@@ -1,0 +1,36 @@
+{
+  "prompt_tokens_requested": 261888,
+  "wall_s": 119.90046310424805,
+  "all_passkeys_retrieved": true,
+  "response": {
+    "id": "cmpl-b0939948aca13337",
+    "object": "text_completion",
+    "created": 1790236346,
+    "model": "qwen3.8-flash-next-4p89bpw",
+    "choices": [
+      {
+        "index": 0,
+        "text": "ALPHA: cedar-731826\nBETA: quartz-492175\nGAMMA: harbor-863204",
+        "logprobs": null,
+        "finish_reason": "stop",
+        "stop_reason": null,
+        "token_ids": null,
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "routed_experts": null
+      }
+    ],
+    "service_tier": null,
+    "system_fingerprint": "vllm-0.1.dev21504+g57fdda71b.d20260923-tp2-994b8303",
+    "usage": {
+      "prompt_tokens": 261888,
+      "total_tokens": 261925,
+      "completion_tokens": 37,
+      "prompt_tokens_details": null,
+      "completion_tokens_details": null
+    },
+    "kv_transfer_params": null,
+    "ec_transfer_params": null,
+    "metrics": null
+  }
+}

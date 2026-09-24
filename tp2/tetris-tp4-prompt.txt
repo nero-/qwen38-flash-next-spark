@@ -1,0 +1,1 @@
+Write a complete playable Tetris game in a single HTML file using HTML canvas, CSS, and JavaScript. Include keyboard controls, scoring, level progression, next-piece preview, pause and restart. Return the full code.

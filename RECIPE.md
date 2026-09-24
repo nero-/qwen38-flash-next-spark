@@ -1,4 +1,23 @@
+> **TP2 deployment:** Both Sparks use resident PLE and the `hc-adaptive` MTP3 default (`hc` is the backup).
+
+Final cable trial (2026-09-24): **two cables selected, adaptive HC/MTP3 unchanged**. Large collective times improved 4–6%; model results were modest and mixed. [Measured comparison and one-cable fallback](tp2/optimization/CABLES.md).
+> Use [the TP2 operations guide](tp2/README.md) and `~/Agent/Builds/spark-ctl.sh` on the Mac.
+> The TP1 instructions below are historical; do not start them alongside TP2.
+
 # Recipe & Postmortem — Qwen3.8-Flash-Next NVFP4 (QAD) on DGX Spark (TP1)
+
+> **2026-09-22 audit:** Several interpretations in this historical postmortem
+> were incorrect. The FR-Spec acceptance explanation and projected +35% gain
+> are withdrawn; the custom coding benchmark's 16.4 tok/s counted chunks.
+> Controlled short-prose requests on the unchanged server already measured
+> 48.58–49.45 tok/s. The official harness then confirmed 49.18 tok/s C=1
+> and 19.67 tok/s per stream C=8, plus 45.36 tok/s built-in Coding Peak.
+> See [PERFORMANCE_AUDIT.md](PERFORMANCE_AUDIT.md).
+
+> **Latest configuration:** This is the historical recipe. CUDA 13.3 toolkit,
+> loader comparisons, resident-PLE capacity findings and the image-cap change
+> are recorded in [TP1_OPTIMIZATION.md](TP1_OPTIMIZATION.md). Use
+> [OPERATIONS.md](OPERATIONS.md) for the current launch command.
 
 **Status:** Stable and serving. This document records what we built, what the
 numbers are, every optimization attempted, which ones worked, and — in detail —
@@ -50,7 +69,7 @@ Model name for clients: `qwen3.8-flash-next-4p89bpw`. Startup ~5 min
 
 | Knob | Value | Measured effect |
 |---|---|---|
-| `VLLM_PLE_TABLE_MEMORY=disk` | SSD io_uring row reads | Frees 26.8 GiB for KV. **KV: 68k → 1.39M tokens.** Cost: ~5 ms/step at C=1, ~0.7 ms at C=8 (see §4, experiment B). |
+| `VLLM_PLE_TABLE_MEMORY=disk` | SSD io_uring row reads | Frees 26.8 GiB for KV. Original profile supports 1.39M KV tokens. A matched small-capacity control differed from resident by only 0.54 ms per decode round; see `TP1_OPTIMIZATION.md`. |
 | `MAX_NUM_SEQS=16` | concurrent streams | At 8: 116.7 tok/s. At 16: **162.2 tok/s.** Must pair with full graph coverage. |
 | `MAX_MODEL_LEN=262144` | native context | The served profile; YaRN 512k exists but untested here. |
 | `MAX_NUM_BATCHED_TOKENS=8192` | prefill chunk | Part of the run-4 prefill gain (2,473 tok/s @8k vs 2,114 at 2048). |
@@ -71,14 +90,14 @@ Resulting pool: **KV 1,392,826 tokens**, concurrency 5.31× at 262k context.
 | Prefill @32k | 2,304 | **2,468** | **+7%** |
 | Prefill @128k | 2,146 | 2,150 | parity |
 | KV pool | ~992k tok | **1,392,826** | **+40%** |
-| Decode C=1 | 48.7 tok/s (accept 3.0 → 16.2 steps/s) | 33.3 (accept 2.2 → 15.1 steps/s) | engine **parity (−7%)**; tok/s gap is acceptance |
-| Decode C=8 | 162.9 (accept ~2.8) | 116.7 (accept 2.13 → 54.8 steps/s) | −28% (≈6% steps + acceptance) |
+| Decode C=1 | 48.7 tok/s (accept 3.0 → 16.2 steps/s) | 33.3 (accept 2.2 → 15.1 steps/s) | different workloads; not a matched comparison |
+| Decode C=8 | 162.9 (accept ~2.8) | 116.7 (accept 2.13 → 54.8 steps/s) | −28%; attribution not established |
 | Decode C=16 | not measured by them | **162.2** | matches their C=8 |
-| Coding speed | — | **16.4 tok/s** (4 runs, ±0.1) | — |
+| Historical coding counter | — | 16.4 chunks/s | **Invalid token-rate measurement** |
 
-**The one-line summary:** engine throughput is at parity; the entire remaining
-decode gap is MTP **acceptance length** (2.2 vs 3.0 tokens/step), which traces
-to their reduced-vocabulary draft head (see §5).
+**Corrected interpretation:** these benchmark workloads and sampling settings
+differ. The observed acceptance gap does not identify reduced vocabulary as
+the cause. Matched short-prose requests now reach the reference C=1 rate.
 
 ---
 
@@ -116,7 +135,8 @@ vLLM source build on 20 cores).
 ### A. PLE in pinned host RAM instead of SSD — **worked, rejected for TP1**
 
 - **Hypothesis:** the ~6% engine-step gap vs MiaAI (65.4 vs 61.5 ms at C=1)
-  was PLE SSD I/O — 48 sequential table reads per engine step.
+  was PLE SSD I/O. The old claim of 48 sequential PLE layers was incorrect:
+  checkpoint configuration has `ple_layer_ids: [2]`, just one PLE layer.
 - **To make it load at all**, we patched the PLE loader: in `mapped_host`
   mode the loading view is a **CPU pinned alias**, but the b12x session
   writer only accepts pool-owned CUDA destinations, and file-backed routing
@@ -127,21 +147,23 @@ vLLM source build on 20 cores).
     `FileTensorSource`, rows read from the safetensors file directly
     (`_read_file_rows`);
   - `model.py::checkpoint_file_weight_filter` extended to `mapped_host`.
-- **Result:** C=1 step **65.4 → 60.5 ms (−7.5%)**, C=8 18.2 → 17.5 ms (−4%).
-  Hypothesis confirmed: PLE I/O is the engine gap.
+- **Result:** C=1 step **65.4 → 60.5 ms (−7.5%)**, C=8 inverse aggregate request-round rate 18.2 → 17.5 ms (−4%);
+  those C=8 values are not per-batch engine step latency.
+  These historical timings do not isolate PLE I/O from workload and capacity
+  changes. The September 22 Nsight trace instead shows dense projections and
+  MoE dominating C=1 GPU time; host waits also include waiting for GPU work.
 - **Why rejected on TP1:** pinned mapped memory is *non-evictable committed*
   memory. It leaves only 557k KV tokens (vs 1.39M) and drove MemAvailable to
   ~0. On GB10 the "where" doesn't matter, only the commitment class — and
-  pinned is the worst class for a shared unified pool. **This experiment is
-  the TP2 playbook:** two NVMe paths split the row reads, so the same I/O
-  cost largely disappears without pinning anything.
+  pinned consumes the shared unified pool. TP2 behavior must be measured;
+  two devices do not by themselves establish that the PLE cost disappears.
 
 ### B. Draft-head dtype (NVFP4 vs BF16) — **A/B'd, no difference**
 
 `VLLM_MTP_NVFP4_LM_HEAD=1` (fork default) vs `0`: acceptance median 2.18 vs
 2.27, C=1 33.3 vs 32.5 tok/s — noise. Keep NVFP4 (less memory).
 
-### C. FR-Spec reduced draft vocabulary — **the big win, could not land** (§5)
+### C. FR-Spec reduced draft vocabulary — failed port, benefit unmeasured (§5)
 
 ### D. Things measured/ruled out
 
@@ -158,14 +180,14 @@ vLLM source build on 20 cores).
 
 **The idea** (from MiaAI): shrink the MTP draft head from 248,320 rows to a
 frequent-token subset (we built 51,259 ids from 123 MB of en+code corpus,
-100% coverage, all 256 byte-fallback + special tokens pinned). Concentrates
-draft probability → acceptance 2.2 → ~3.0 → **+35% decode** (C=1 → ~45,
-C=8 → ~158, C=16 → ~219). **Zero quality cost** — rejection sampling is
-exact; out-of-subset drafts are merely never proposed.
+100% coverage, all 256 byte-fallback + special tokens pinned). The original probability-concentration explanation and +35% speed projection
+were unsupported and are withdrawn. A reduced head can save bandwidth; any
+benefit must be measured against our already-NVFP4 head. Correctness requires
+proper token-ID/probability mapping through target verification, and has not
+been validated for the parked implementation.
 
-**Expected impact split:** roughly half from the smaller head GEMM
-(0.22 GB vs 1.18 GB per draft step) and half from probability concentration.
-MiaAI measured +25% single-stream.
+**Impact unknown on this fork:** the old half-GEMM/half-acceptance attribution
+was not measured. MiaAI's BF16-head byte savings are not our NVFP4-head savings.
 
 ### Seven failed launches, each fixing the previous bug
 
@@ -221,8 +243,7 @@ path was never reached — every attempt died before it).
 
 **Mask on the materialized full head** (keep 248k head, add `-inf` on
 non-subset rows before argmax — a registered buffer, built eagerly in
-`__init__`, never cached lazily). Recovers the probability-concentration
-half of the win but not the head-GEMM half. Never landed because the mask
+`__init__`, never cached lazily). Does not save head GEMM bandwidth and has no established acceptance benefit. Never landed because the mask
 experiment hit bug #4 first; the eager-registered-buffer fix
 (commit `26462a0`) should address it and is the *lowest-risk* path if you
 want partial gains without touching the load lifecycle. Untested.
@@ -237,8 +258,8 @@ want partial gains without touching the load lifecycle. Untested.
 4. Losslessness test: identical outputs vs full-vocab config on a fixed
    prompt set (temperature 0) — rejection sampling guarantees this, but test
    it (out-of-subset tokens must be *absent*, not degraded).
-5. Re-run the acceptance metric: expect per-position 0.8/0.6/0.4 → mean
-   accept ~3.0; then re-run the decode sweep.
+5. Re-run acceptance and throughput on identical requests; do not assume an
+   acceptance increase. Report measured changes, including regressions.
 
 ---
 
@@ -278,10 +299,11 @@ Docs in the GitHub repo (`Agent/Builds/qwen38-flash-next-spark`):
 
 ## 8. Open ideas for the next agent
 
-1. **Land FR-Spec** (§5 checklist) — biggest single win available: +35% decode.
-   Start from branch `frspec-draft-vocab`, read §5 first.
-2. **TP2** — decode improves structurally (PLE I/O splits across two NVMe
-   paths; collectives move to RoCE). `TP2_MIGRATION.md` has the bring-up.
+1. **Benchmark comparability first** — use the official harness and explicit
+   request settings. FR-Spec (§5) is an unmeasured optimization on this fork,
+   not a demonstrated +35% win.
+2. **TP2** — measure the balance of sharded compute, PLE reads and RoCE
+   collectives. `TP2_MIGRATION.md` has the bring-up; gains are not yet measured.
 3. **YaRN 512k** — untested; would need the KV arithmetic redone at 2×
    context (§5 of MiaAI's docs covers their approach; same checkpoint family).
 4. **max_num_seqs beyond 16** for ≤32k traffic — C=16 ≈ C=8+40%, so there may

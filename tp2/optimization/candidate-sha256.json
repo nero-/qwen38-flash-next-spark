@@ -1,0 +1,7 @@
+{
+  "candidate/hc_prefill.py": "3564f0015b10b0ddfd28be09a834e5533047c59f6177b6ce043c7b5b31d86587",
+  "candidate/hyperconnection.py": "5e856a2a2fa43c28ba657f4616671d4139d6e6c32d0a7f62f0cea053ff76b6ff",
+  "candidate/model.py": "e5ffd7a968341794dbe9acbf2f20ebbeb2c82f58db49b28591080ef6ab9a7313",
+  "candidate/qwen3_next.py": "9697c264c857b0028500d51f98deffcd329d19fb8db5f188b3fcbb11e1d19a61",
+  "candidate/speculator.py": "107a2a6fe57fe157750c2996ca0309268e405f6830c3b67ace85f345c87cfc43"
+}

@@ -1,56 +1,25 @@
 #!/usr/bin/env bash
-# Coding-speed benchmark: long Python/SQL code-generation prompt at C=1, thinking off,
-# temperature 0. Reports single-stream decode tok/s (max coding speed at C=1) and TTFT.
+# Official local-inference-lab/llm-inference-bench Coding Peak mode.
+# A short C=1 decode cell precedes the built-in sequential coding test.
+# Coding Peak uses the upstream Sieve prompt and model sampling/thinking defaults.
 set -euo pipefail
-PORT="${PORT:-8000}"
+BENCH_ROOT="${BENCH_ROOT:-$HOME/projects/llm-inference-bench}"
+PYTHON_BIN="${PYTHON_BIN:-$HOME/venvs/qwen38/bin/python}"
 HOST="${HOST:-127.0.0.1}"
-OUT="${OUT:-$HOME/coding_speed.json}"
-
-PROMPT='Write a production-quality Python function `analyze_sales(rows)` that takes a list of dicts with keys date (ISO string), region (str), product (str), units (int), revenue (float). Return a dict with: (1) revenue_by_region sorted desc, (2) top_3_products by total units with ties broken by name asc, (3) month_over_month growth of total revenue as percentages rounded to 2 decimals. Include type hints, docstring, input validation raising ValueError on bad rows, and a small usage example under if __name__ == "__main__". Write only code, no prose.'
-
-curl -s "http://$HOST:$PORT/v1/chat/completions" \
-  -H "Content-Type: application/json" \
-  -d "$(python3 - "$PROMPT" <<'PY'
-import json, sys
-print(json.dumps({
-    "model": "qwen3.8-flash-next-4p89bpw",
-    "messages": [{"role": "user", "content": sys.argv[1]}],
-    "max_tokens": 2048,
-    "temperature": 0,
-    "stream": True,
-    "chat_template_kwargs": {"enable_thinking": False},
-}))
-PY
-)" | python3 - "$OUT" <<'PY'
-import json, sys, time
-out_path = sys.argv[1]
-t0 = None; t_first = None; t_last = None; n = 0
-for line in sys.stdin:
-    line = line.strip()
-    if not line.startswith("data: ") or line == "data: [DONE]":
-        continue
-    d = json.loads(line[6:])
-    ch = d["choices"][0]
-    delta = ch.get("delta") or {}
-    if delta.get("content"):
-        now = time.monotonic()
-        if t0 is None:
-            t0 = now
-        if t_first is None:
-            t_first = now
-        t_last = now
-        n += len(delta["content"])
-    if d.get("usage"):
-        usage = d["usage"]
-gen_s = (t_last - t_first) if (t_first and t_last and t_last > t_first) else 0
-ttft = (t_first - t0) if (t_first and t0) else 0
-result = {
-    "decode_tokens": n,
-    "ttft_s": round(ttft, 3),
-    "generation_s": round(gen_s, 3),
-    "decode_tok_s": round(n / gen_s, 2) if gen_s else None,
-}
-print(json.dumps(result, indent=2))
-with open(out_path, "w") as fh:
-    json.dump(result, fh, indent=2)
-PY
+PORT="${PORT:-8000}"
+MODEL="${MODEL:-qwen3.8-flash-next-4p89bpw}"
+OUT="${OUT:-$HOME/coding_peak_$(date +%Y%m%d_%H%M%S).json}"
+[[ -f "$BENCH_ROOT/llm_decode_bench.py" ]] || { echo "Missing benchmark checkout: $BENCH_ROOT" >&2; exit 1; }
+[[ -x "$PYTHON_BIN" ]] || { echo "Missing Python environment: $PYTHON_BIN" >&2; exit 1; }
+extra=()
+if [[ -n "${CODING_TEMPERATURE:-}" ]]; then
+  extra+=(--coding-peak-temperature "$CODING_TEMPERATURE")
+fi
+exec "$PYTHON_BIN" "$BENCH_ROOT/llm_decode_bench.py" \
+  --host "$HOST" --port "$PORT" --model "$MODEL" \
+  --no-hw-monitor --display-mode plain --no-resume \
+  --skip-prefill --contexts 0 --concurrency 1 --duration 15 \
+  --max-tokens 2048 --coding-peak \
+  --coding-peak-runs "${CODING_RUNS:-5}" \
+  --coding-peak-max-tokens "${CODING_MAX_TOKENS:-2000}" \
+  --output "$OUT" "${extra[@]}" "$@"

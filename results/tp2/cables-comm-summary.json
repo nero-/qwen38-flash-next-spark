@@ -1,0 +1,93 @@
+[
+  {
+    "operation": "all_reduce",
+    "size": 8192,
+    "one_cable_us": 9.3,
+    "two_cable_us": 9.149999999999999,
+    "latency_reduction_pct": 1.6129032258064724
+  },
+  {
+    "operation": "all_reduce",
+    "size": 20480,
+    "one_cable_us": 10.9,
+    "two_cable_us": 10.75,
+    "latency_reduction_pct": 1.3761467889908285
+  },
+  {
+    "operation": "all_reduce",
+    "size": 30720,
+    "one_cable_us": 11.8,
+    "two_cable_us": 11.649999999999999,
+    "latency_reduction_pct": 1.271186440677985
+  },
+  {
+    "operation": "all_reduce",
+    "size": 40960,
+    "one_cable_us": 13.4,
+    "two_cable_us": 13.0,
+    "latency_reduction_pct": 2.985074626865669
+  },
+  {
+    "operation": "all_reduce",
+    "size": 65536,
+    "one_cable_us": 15.350000000000001,
+    "two_cable_us": 14.649999999999999,
+    "latency_reduction_pct": 4.560260586319231
+  },
+  {
+    "operation": "all_reduce",
+    "size": 262144,
+    "one_cable_us": 27.85,
+    "two_cable_us": 26.9,
+    "latency_reduction_pct": 3.4111310592459754
+  },
+  {
+    "operation": "all_reduce",
+    "size": 1048576,
+    "one_cable_us": 70.75,
+    "two_cable_us": 66.6,
+    "latency_reduction_pct": 5.865724381625448
+  },
+  {
+    "operation": "all_reduce",
+    "size": 2097152,
+    "one_cable_us": 126.80000000000001,
+    "two_cable_us": 118.7,
+    "latency_reduction_pct": 6.388012618296535
+  },
+  {
+    "operation": "all_gather",
+    "size": 4,
+    "one_cable_us": 70.65,
+    "two_cable_us": 66.7,
+    "latency_reduction_pct": 5.590941259731075
+  },
+  {
+    "operation": "all_gather",
+    "size": 5,
+    "one_cable_us": 84.7,
+    "two_cable_us": 83.5,
+    "latency_reduction_pct": 1.416765053128688
+  },
+  {
+    "operation": "all_gather",
+    "size": 6,
+    "one_cable_us": 98.65,
+    "two_cable_us": 94.25,
+    "latency_reduction_pct": 4.460212873796254
+  },
+  {
+    "operation": "all_gather",
+    "size": 16,
+    "one_cable_us": 241.14999999999998,
+    "two_cable_us": 228.2,
+    "latency_reduction_pct": 5.370101596516685
+  },
+  {
+    "operation": "all_gather",
+    "size": 64,
+    "one_cable_us": 1179.0,
+    "two_cable_us": 1127.35,
+    "latency_reduction_pct": 4.380831212892289
+  }
+]

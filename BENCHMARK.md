@@ -1,109 +1,79 @@
-# Qwen3.8-Flash-Next NVFP4 (QAD) — DGX Spark TP1 Benchmark Report
+> **Current TP2 profile: `hc-adaptive`, MTP3**, selected by the user; `hc` is the backup.
 
-**Host:** spark-r0 (DGX Spark, GB10, 121 GiB unified LPDDR5X, CUDA 13.0 driver 580.178.04)
-**Engine:** vLLM `0.1.dev21460+gaf9e4dca1` (`local-inference-lab/vllm` branch `dev/karmic-kraken`) + b12x 1.3.0 source build (SM121)
-**Checkpoint:** `local-inference-lab/Qwen3.8-Flash-Next-NVFP4` — 98.6 GiB, quantization-aware distillation (QAD): NVFP4 routed experts/PLE, MXFP8 attention + shared experts, W4A16 NVFP4 vision FC2/MTP
+Final cable trial (2026-09-24): **two cables selected, adaptive HC/MTP3 unchanged**. Large collective times improved 4–6%; model results were modest and mixed. [Measured comparison and one-cable fallback](tp2/optimization/CABLES.md).
+> Adaptive decode showed no repeatable advantage; both profiles span roughly
+> 221–232 tok/s at 32K/C8. The HC prefill improvement remains the useful result.
+> See [the guide](tp2/README.md) and [controlled results](tp2/optimization/HC-SEPARATION.md).
 
-## Final config (run 4)
+# Single-Spark LIL benchmarks
 
-```bash
-PATH="$HOME/venvs/qwen38/bin:$PATH" \
-VLLM_PLE_TABLE_MEMORY=disk \
-MAX_NUM_SEQS=16 \
-KV_CACHE_MEMORY_BYTES=21474836480 \
-MAX_MODEL_LEN=262144 \
-MAX_NUM_BATCHED_TOKENS=8192 \
-CUDAGRAPH_CAPTURE_SIZES=auto \
-bash serve.sh -- --mamba-ssm-cache-dtype bfloat16 \
-                 --gdn-prefill-backend flashinfer \
-                 --gdn-decode-kernel cuda
-```
+Use the unmodified [local-inference-lab/llm-inference-bench](https://github.com/local-inference-lab/llm-inference-bench), v0.6.2 at `ccd9ad8ced7e387794391bfb0ac6d99b1f66ba6f`.
 
-| | Run 1 | Run 2 | Run 3 | Run 4 (final) |
-|---|---|---|---|---|
-| PLE table (26.8 GiB) | GPU | SSD io_uring | SSD | SSD |
-| KV pool | 1.5 GiB / 68k tok | 20 GiB / 913k | 20 GiB / 1.29M | 20 GiB / **1.39M** |
-| `max_num_seqs` | 1 | 8 | 16 | 16 |
-| `max_model_len` | 65,536 | 65,536 | **262,144** | 262,144 |
-| `max_num_batched_tokens` | 2,048 | 2,048 | **8,192** | 8,192 |
-| FULL CUDA graphs | 5 | 9 | **9 (widths 4–128)** | 9 |
-| SSM state dtype | float32 | float32 | float32 | **bfloat16** |
-| GDN prefill | b12x | b12x | b12x | **flashinfer** (bf16 state) |
-| GDN decode | b12x | b12x | b12x | **cuda (fused)** |
+The source build updated September 23 uses vLLM `cff8aebfeb73de96c97b4c5a0550c5a49f27451c` and b12x `0332cc5089137753d3af43d1c643516b4350359f`. The b12x loader now uses ordinary CUDA allocations. Its result is approximately unchanged from the earlier InstantTensor run when normalized for MTP acceptance; these measurements do not show a doubling of speed.
 
-Notes:
-- `mamba_ssm_cache_dtype=bfloat16` requires `--gdn-prefill-backend flashinfer` — the b12x `gdn_prefill` kernel hard-requires FP32 state. FlashInfer's GDN prefill qualifies on SM12x + head_dim 128 + CUDA 13. The b12x decode kernel also hard-requires FP32, hence the fused CUDA decode kernel (`--gdn-decode-kernel cuda`; b12x and cuda decode both accept bf16, but b12x was verified only with the b12x prefill pairing).
-- Capture sizes: `seqs=16 × MTP query_len=4` → ceiling `min(16×4×2, 512)=128`; FULL graphs cover 4–128 tokens, so every verify batch (16 seqs × 4 tok = 64) has an exact graph.
-- KV 1,392,826 tokens (bf16 SSM state shrinks the mamba page → 5.31x concurrency at 262,144 ctx).
+| Context | Earlier Instant prefill | Updated b12x prefill | Earlier Instant C1 | Updated b12x C1 | Earlier Instant C8 aggregate | Updated b12x C8 aggregate |
+|---|---:|---:|---:|---:|---:|---:|
+| 8k | 2,481 | 2,466 | 36.54 | 39.33 | 119.59 | 114.73 |
+| 32k | 2,469 | 2,457 | 36.85 | 37.06 | 115.72 | 117.87 |
+| 64k | 2,348 | 2,347 | 39.33 | 35.14 | 114.49 | 118.08 |
 
-## Run 4 results (final config)
+All rates are tokens/s. C8 aggregate is the sum across eight active requests; divide by eight for mean per-stream throughput. These are single matrix runs, not estimates of run-to-run variance. C1 output rates vary with MTP acceptance: normalized request rounds/s changed by roughly −1% to +1.4% across the six cells. At C8, the harness's normalized rounds/s are aggregate request rounds, not global engine batch steps.
 
-### Prefill
+## Method and configuration
 
-| ctx | TTFT | prefill tok/s |
-|---|---|---|
-| 8k | 3.32 s | **2,473** |
-| 32k | 13.04 s | **2,468** |
-| 64k | 27.9 s | **2,351** |
-| 128k | 60.9 s | **2,150** |
+The six decode cells use 8,192 / 32,768 / 65,536 nominal context, concurrency 1 and 8, 30-second measurement windows, max 2,048 generated tokens, upstream default sampling, and no reasoning override. Standalone cold prefill uses client prompt-tokens/TTFT at the same nominal lengths. Token targeting is approximate; actual inputs are recorded in each report. Both runs completed all six cells with zero errors, matched effective concurrency, and no underfill, warmup timeout, capacity limitation, or detected exact repetition loop.
 
-### Sustained decode, aggregate tok/s
+Both use the same checkpoint, full vocabulary, MTP 3, disk PLE, 262,144 max context, 20 GiB FP8 KV, max 16 sequences, 8,192-token chunks, BF16 recurrent state, FlashInfer GDN prefill, and CUDA GDN decode. No new quantization or vocabulary restriction was introduced. Host toolkit: CUDA 13.3.1; source PyTorch: 2.13.0+cu132; driver: 580.178.04.
 
-| ctx \ conc | 1 | 2 | 4 | 8 | 16 |
-|---|---|---|---|---|---|
-| 8k | 33.3 | 55.9 | 71.6 | 116.7 | **162.2** |
-| 32k | 33.2 | 53.9 | 69.3 | 105.1 | **161.2** |
-| 64k | 33.0 | 54.9 | 75.4 | 107.4 | **163.7** |
-| 128k | 33.1 | 54.7 | 79.0 | 108.9 | **156.4** |
+The updated source build passed 252 targeted upstream tests (9 skipped), accepted five images, and retrieved all three passkeys from a 261,888-token prompt. These are functional checks, not a comprehensive quality evaluation or KLD measurement.
 
-All 20 cells measured — no skips, no errors. Per-stream at C=16: ~11 tok/s. TTFT at C=16 ~530 ms.
+Evidence: [source matrix](results/tp1-opt-20260922/kk-b12x-cu133-matrix.json), [exact command](results/tp1-opt-20260922/kk-b12x-cu133-matrix-command.json), [launch settings](results/tp1-opt-20260922/kk-b12x-cu133-launch.json), [matrix summaries](results/tp1-opt-20260922/lil-matrix-summary.json).
 
-MTP-normalized steps/s: C=1 ≈ 15.4, C=8 ≈ 55, **C=16 ≈ 82** (accept ~2.0).
+## Container comparison: same serving settings
 
-### Max coding speed (single-stream, long codegen prompt, thinking off, temp 0)
+Requested image: `eugr/spark-vllm-b12x:nightly-20260923`, pinned to `sha256:5249a162cd39aa090e803243aef376e1f87f0fd4826f9249ea1ecd0c814b2c7e`.
+Actual installed packages: vLLM `0.1.dev21504+g57fdda71b.d20260923`, b12x 1.3.0, PyTorch 2.13.0+cu130, CUTLASS DSL 4.7.0, FlashInfer 0.7.0. Bundled nvcc reports 13.0.88. This compares a complete packaged stack, not an isolated Docker or CUDA change. Host CUDA 13.3 remains installed.
 
-| run | tokens | decode tok/s |
-|---|---|---|
-| 1 | 452 | 16.48 |
-| 2 | 466 | 16.44 |
-| 3 | 522 | 16.41 |
-| 4 | 460 | 16.44 |
+All six image cells passed with zero errors and no underfill, warmup timeout, capacity limitation, or detected exact loop. The packaged stack did not improve the primary matrix: prefill was within approximately 1.3% of source and normalized decode request rounds changed by −4.1% to +0.9%. Raw decode token rates vary with acceptance.
 
-**~16.4 tok/s** (+5% over run 2's 15.6 — the bf16 SSM state halved the recurrent-state bandwidth).
+| Context | Source prefill | Image prefill | Source C1 | Image C1 | Source C8 aggregate | Image C8 aggregate |
+|---|---:|---:|---:|---:|---:|---:|
+| 8k | 2,466 | 2,457 | 39.33 | 34.59 | 114.73 | 117.39 |
+| 32k | 2,457 | 2,425 | 37.06 | 35.84 | 117.87 | 116.32 |
+| 64k | 2,347 | 2,334 | 35.14 | 37.05 | 118.08 | 124.87 |
 
-## Scorecard vs MiaAI-Lab single-Spark recipe (identical hardware, 2026-09-06 sweep)
+Official Coding Peak on the image (Sieve of Eratosthenes, three runs, model-default sampling/thinking, max 2,000 output tokens): **50.69 tok/s mean**, 47.59–53.94 range. This uses completion-token counts and excludes TTFT from generation rate. It is a different workload from the long-context matrix. The developer's reported 60→90 tok/s is not yet reproduced; MTP 3 matches, but his exact prompt/context and remaining settings are unavailable.
 
-| metric | MiaAI | ours (run 4) | delta |
-|---|---|---|---|
-| decode C=1 prose | 48.7 tok/s (accept 3.0 → 16.2 steps/s) | 33.3 tok/s (accept 2.2 → 15.1 steps/s) | **engine steps/s parity (−7%)**; tok/s gap is acceptance, see below |
-| decode C=8 aggregate | 162.9 | 116.7 | −28% |
-| decode C=16 aggregate | (not measured; C=8 profile) | **162.2** | matches their C=8 number |
-| prefill @8k | 2,200 | **2,473** | **+12%** |
-| prefill @32k | 2,304 | **2,468** | **+7%** |
-| prefill @128k | 2,146 | 2,150 | parity |
-| KV pool | ~16.7 GiB / 992,584 tok | 20 GiB / **1,392,826 tok** | +40% |
-| context | 262k native / 512k YaRN | 262k native (262k = checkpoint native ceiling) | — |
+Image evidence: [matrix](results/tp1-opt-20260922/eugr-20260923-r2-matrix.json), [launch](results/tp1-opt-20260922/eugr-20260923-r2-launch.json), [Coding Peak](results/tp1-opt-20260922/eugr-20260923-r2-coding.json). The image also accepted five images and correctly counted them.
 
-## Acceptance-length gap — root cause
+The updated source build averaged **52.50 tok/s** on the same three-run Coding Peak test (50.10–56.34 range), versus the image's 50.69. These small, stochastic samples overlap; they do not establish a coding speed advantage for the image.
 
-MiaAI's 3.0 tok/step comes from **reduced-vocabulary drafting (FR-Spec)**: a 47k-token draft-head subset concentrates draft probability mass (their measured +25% single-stream decode, and their published acceptance 0.80/0.59/0.41). Our per-position rates (0.73/0.55/0.43 recent) are ~8% lower at each position on the full 248,320-token draft head.
+The attempted isolated BF16 b12x decode switch was rejected before loading: this vLLM build requires b12x prefill and decode together, and b12x prefill requires FP32 state. The supported paired b12x/FP32 experiment also completed, increasing recurrent-state precision while retaining the same model, MTP, context and KV byte budget.
 
-Verified experiments:
-- **NVFP4 vs BF16 draft head** (`VLLM_MTP_NVFP4_LM_HEAD=1` vs `0`): accept 2.18 vs 2.27 median — **no difference** (A/B: C=1 33.3 vs 32.5, C=8 116.7 vs 113.4). Keep NVFP4 (less memory).
-- The fork's Qwen4Exp MTP (`vllm/models/qwen4_exp/nvidia/mtp.py`) has **no vocab-subset support**; porting FR-Spec would require upstream work (draft-head row gathering + rejection-sampling mask).
+| Context | b12x/FP32 prefill | C1 decode | C8 aggregate decode |
+|---|---:|---:|---:|
+| 8k | 2,323 | 35.64 | 115.70 |
+| 32k | 2,316 | 37.51 | 110.42 |
+| 64k | 2,210 | 33.59 | 108.90 |
 
-## Run history
+All six cells passed. Its prefill was approximately 5% slower than the matched CUDA/BF16 image profile. Coding Peak averaged **51.42 tok/s** (48.34–53.29), again with no substantial gain. It is not the selected performance profile. [FP32 matrix](results/tp1-opt-20260922/eugr-20260923-r2-b12x-fp32-matrix.json), [FP32 coding](results/tp1-opt-20260922/eugr-20260923-r2-b12x-fp32-coding.json).
 
-| run | config | C=1 | C=8 | C=16 | prefill 8k | KV tok |
-|---|---|---|---|---|---|---|
-| 1 | GPU PLE, seqs 1, KV 1.5G | 34.4 | — | — | 2,114 | 68k |
-| 2 | SSD PLE, seqs 8, KV 20G | 36.0 | 103.7 | 99.7 | 2,040 | 913k |
-| 3 | + seqs 16, 256k ctx, batch 8k | 34.7 | 100.3 | 150.4 | 2,324 | 1.29M |
-| 4 | + bf16 SSM, FI prefill, fused decode | 33.3 | 116.7 | **162.2** | **2,473** | **1.39M** |
+Across this entire image/source-recheck session, system used memory peaked at **112.55 GiB**; the 119 GiB guard never triggered. The five-image check passed on the CUDA/BF16 image. No lower precision, reduced vocabulary or smaller context was used.
 
-## Remaining levers (not reachable on this fork today)
+## Completed TP1 kernel comparison
 
-1. **FR-Spec vocab-subset drafting** — the acceptance lever (theirs 3.0 vs ours 2.2); needs porting the draft-vocab row-slicing into the fork's MTP speculator.
-2. **MAX_NUM_SEQS beyond 16** — C=16 ≈ C=8+40%; further scaling likely KV/scheduler-bound at full 262k context (5.3x concurrency ceiling), fine for ≤32k traffic.
+The same CUDA/BF16 container was tested on 7.0.0-1019 and 6.17.0-1032,
+with driver 580.178.04 unchanged. On 6.17, C1 measured 40.26 / 36.55 / 35.99
+at 8K / 32K / 64K, C8 aggregate 117.81 / 116.98 / 119.40, and prefill
+2479 / 2473 / 2348 tokens/s. Coding Peak averaged 54.75 tokens/s
+(range 49.12–60.55). Acceptance-normalized C1 improved about 2–5%; these
+single runs do not isolate kernel effects from reboot and sampling variation.
+The one-time 6.17 boot has ended; both Sparks currently run 7.0 for TP2.
 
-Raw JSON: `~/bench_decode4.json` (final), `~/bench_decode3.json` (run 3), `~/bench_decode2.json` (run 2), `~/bench_decode.json` (run 1), `~/coding_speed.json` on spark-r0.
+See [TP2 results and configuration](tp2/README.md) for the current deployment.
+
+## Historical corrections and retention
+
+The former custom coding benchmark counted SSE chunks instead of tokens. Its reported ~16.4 tok/s is invalid and must not be used. MiaAI's short prose, sampling, and thinking settings differ from this LIL matrix; its rates are not a matched comparison. Historical analysis remains in [PERFORMANCE_AUDIT.md](PERFORMANCE_AUDIT.md) and [TP1_OPTIMIZATION.md](TP1_OPTIMIZATION.md).
+
+Old raw benchmark artifacts were deleted at the user's request; retain the latest two completed comparison runs. Earlier rates above are historical summaries. Operational launch commands are in [OPERATIONS.md](OPERATIONS.md).
