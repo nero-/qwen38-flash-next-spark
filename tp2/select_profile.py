@@ -3,6 +3,7 @@
 import argparse
 import datetime
 import json
+import re
 import subprocess
 import urllib.request
 from pathlib import Path
@@ -15,8 +16,10 @@ root = Path.home() / cfg["remote_root"]
 worker = cfg["ranks"][1]["peer_ssh"]
 peer = ["ssh", *cfg["ssh_options"], worker]
 p = argparse.ArgumentParser()
-p.add_argument("profile", choices=["baseline", "hc", "hc-adaptive", "hc-prefill", "hc-prefill-dynamic", "hc-k20-mtp5"])
+p.add_argument("profile", help="profile name, optionally with +modifiers; launch.py check validates it on both ranks")
 requested = p.parse_args().profile
+if not re.fullmatch(r"[a-z0-9-]+(?:\+[a-z0-9]+)*", requested):
+    p.error(f"Invalid profile name: {requested}")
 old = (root / "selected-profile.txt").read_text().strip() if (root / "selected-profile.txt").exists() else cfg["default_profile"]
 
 
@@ -79,6 +82,9 @@ def switch(name: str) -> None:
         subprocess.run(["bash", str(root / "cluster.sh"), "stop"], check=False)
         for rank in (0, 1):
             prefix = peer if rank else []
+            # Keep the failed candidate's logs; they are the only record of why it failed.
+            with (root / "evidence" / f"{stamp}-failed-{name.replace('+', '_')}-rank{rank}.log").open("w") as log:
+                subprocess.run(prefix + ["docker", "logs", "qwen-tp2"], stdout=log, stderr=subprocess.STDOUT, check=False)
             subprocess.run(prefix + ["docker", "rm", "-f", "qwen-tp2"], check=False, stdout=subprocess.DEVNULL)
         write_selection(old)
         subprocess.run(["bash", str(root / "cluster.sh"), "start"], check=False)

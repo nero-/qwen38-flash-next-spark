@@ -1,0 +1,45 @@
+{
+ "tag": "c3-hc-adaptive_fp32ssm_gdnb12x",
+ "cells": [
+  {
+   "length": 960,
+   "mean_abs": 0.22974,
+   "max_abs": 5.3573,
+   "exact": 0,
+   "nll": [
+    0.59056,
+    0.59813
+   ]
+  },
+  {
+   "length": 960,
+   "mean_abs": 0.24015,
+   "max_abs": 8.018,
+   "exact": 1,
+   "nll": [
+    0.59056,
+    0.57419
+   ]
+  },
+  {
+   "length": 2048,
+   "mean_abs": 0.28126,
+   "max_abs": 9.3382,
+   "exact": 0,
+   "nll": [
+    0.72871,
+    0.72258
+   ]
+  },
+  {
+   "length": 2048,
+   "mean_abs": 0.267,
+   "max_abs": 7.1339,
+   "exact": 2,
+   "nll": [
+    0.72871,
+    0.72515
+   ]
+  }
+ ]
+}

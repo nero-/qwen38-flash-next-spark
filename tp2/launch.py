@@ -46,9 +46,23 @@ if a.action == "status":
 profile = a.profile or (selection.read_text().strip() if selection.exists() else config["default_profile"])
 trace = profile.endswith("-trace")
 base_profile = profile.removesuffix("-trace") if trace else profile
+# Experiment modifiers: "<profile>+<mod>+<mod>", each changing exactly one axis.
+# Images come from cluster-config.json "experimental_images"; checkpoints are
+# sibling directories of model/ with their own SHA-256 manifests.
+base_profile, *modifiers = base_profile.split("+")
+model_dirs = {"m5500": "model-5500", "m5500h": "model-5500h"}
+known_modifiers = {"cg4", "dmarlin", "fp32ssm", "gdnb12x", *model_dirs, *config.get("experimental_images", {})}
 if base_profile not in profiles: p.error(f"Unknown profile: {profile}")
+if len(set(modifiers)) != len(modifiers) or not set(modifiers) <= known_modifiers:
+    p.error(f"Unknown or repeated modifier in {profile}; known: {sorted(known_modifiers)}")
+if sum(m in config.get("experimental_images", {}) for m in modifiers) > 1 or sum(m in model_dirs for m in modifiers) > 1:
+    p.error("Select at most one experimental image and one checkpoint")
 hybrid, topk, depth, quant_experiment = profiles[base_profile]
-cache = root / ("cache" if base_profile == "baseline" else f"cache-{base_profile}")
+for m in modifiers:
+    if m in model_dirs: model = str(root / model_dirs[m])
+    if m in config.get("experimental_images", {}): IMAGE = config["experimental_images"][m]
+full_profile = "+".join([base_profile, *modifiers])
+cache = root / ("cache" if full_profile == "baseline" else f"cache-{full_profile.replace('+', '_')}")
 rank_config = config["ranks"][rank]
 ip = rank_config["ip"]
 nic = rank_config["socket_interface"]
@@ -97,7 +111,7 @@ server = ["-m", "vllm.entrypoints.cli.main", "serve", model,
     "--pipeline-parallel-size", "1", "--mamba-cache-mode", "align",
     "--enable-prefix-caching", "--enable-chunked-prefill", "--dtype", "bfloat16",
     "--kv-cache-dtype", "fp8", "--quantization", "modelopt_mixed", "--block-size", "16",
-    "--load-format", "b12x", "--kv-cache-memory-bytes", "21474836480",
+    "--load-format", "b12x", "--kv-cache-memory-bytes", str(int(config["kv_cache_gib"]) * 2**30),
     "--max-model-len", "262144", "--max-num-seqs", "16",
     "--max-num-batched-tokens", "8192", "--speculative-config",
     '{"method":"mtp","num_speculative_tokens":3,"draft_sample_method":"probabilistic","rejection_sample_method":"block"}',
@@ -119,8 +133,12 @@ server += ["--distributed-executor-backend", "mp", "--data-parallel-backend", "m
     "--gpu-memory-utilization", "0.80",
     "--nnodes", "2", "--node-rank", str(rank), "--master-addr", config["ranks"][0]["ip"],
     "--master-port", str(config["master_port"]), "--max-cudagraph-capture-size", str(16 * (depth + 1))]
-server[server.index("--speculative-config")+1] = json.dumps(dict(method="mtp", num_speculative_tokens=depth,
-    draft_sample_method="probabilistic", rejection_sample_method="block"))
+spec = dict(method="mtp", num_speculative_tokens=depth,
+    draft_sample_method="probabilistic", rejection_sample_method="block")
+# b12x has no MXFP8 MoE kernel; checkpoints with MXFP8 MTP experts need another drafter backend.
+# Triton has no MXFP8 MoE kernel for SM121; Marlin is the working alternative.
+if "dmarlin" in modifiers: spec["moe_backend"] = "marlin"
+server[server.index("--speculative-config")+1] = json.dumps(spec)
 if hybrid:
     env.update(VLLM_QWEN3_8_FLASH_NEXT_HC_TP="0", VLLM_QWEN3_8_HC_PREFILL_MODE="shard")
 if base_profile == "hc-adaptive": env["QWEN_HC_CHANNEL_DECODE_MAX_TOKENS"] = "4"
@@ -129,6 +147,19 @@ if base_profile == "hc-prefill-dynamic": env["B12X_MICRO_DYNAMIC_CUTOVER_PAIRS"]
 if topk: env["QWEN_MTP_DRAFT_TOP_K"] = "20"
 if quant_experiment:
     env.update(VLLM_MXFP8_LM_HEAD="1", VLLM_B12X_MOE_FP4_LAYER_MAX_INPUT_SCALE="w13")
+if "cg4" in modifiers:
+    # MTP verification batches are multiples of depth+1; capture each one exactly
+    # instead of padding odd concurrencies up to the next default size.
+    width = depth + 1
+    sizes = sorted({1, 2, *range(width, 16 * width + 1, width)})
+    server[server.index("--compilation-config")+1] = json.dumps(dict(
+        pass_config=dict(fuse_act_quant=True), cudagraph_capture_sizes=sizes))
+if "fp32ssm" in modifiers:
+    server[server.index("--mamba-ssm-cache-dtype")+1] = "float32"
+if "gdnb12x" in modifiers:
+    for flag in ("--gdn-prefill-backend", "--gdn-decode-kernel"):
+        i = server.index(flag); del server[i:i+2]
+    server += ["--gdn-prefill-backend", "b12x", "--gdn-decode-kernel", "b12x"]
 if trace:
     server += ["--profiler-config", json.dumps(dict(profiler="torch",
         torch_profiler_dir=f"{home}/.cache/trace", torch_profiler_with_stack=False,

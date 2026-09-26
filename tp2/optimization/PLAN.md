@@ -209,3 +209,8 @@ No scheduler-budget change was made or performance improvement claimed.
 User selected adaptive HC as default and original HC as backup. Both remain
 MTP3. This supersedes the earlier default-selection decision, not the measurement
 uncertainty. Mac aliases: `profile balanced` and `profile original`.
+
+## September 26 campaign
+
+A later campaign selected `hc-adaptive+cg4+m5500h` with 24 GiB KV and recorded
+every rejected lever with data. See [CAMPAIGN-20260926.md](CAMPAIGN-20260926.md).

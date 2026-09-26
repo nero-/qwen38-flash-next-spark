@@ -39,6 +39,18 @@ for host in "$HEAD" "$WORKER"; do
   ssh "${SSH_ARGS[@]}" "$host" "python3 ~/$REMOTE_ROOT/model_manifest.py write"
 done
 
+# Default checkpoint: step-5500 QAD trunk with main's MXFP8 attention and NVFP4 MTP
+# experts (optimization/build_hybrid.py). Each rank downloads the pinned trunk and
+# builds the hybrid itself; both trees must match the committed SHA-256 manifests.
+for host in "$HEAD" "$WORKER"; do
+  ssh "${SSH_ARGS[@]}" "$host" \
+    "docker run --rm --network host --user \$(id -u):\$(id -g) --env HOME=\$HOME --env HF_TOKEN --mount type=bind,src=\$HOME/$REMOTE_ROOT,dst=\$HOME/$REMOTE_ROOT --entrypoint /usr/bin/python3 '$IMAGE' \$HOME/$REMOTE_ROOT/download_model.py trunk"
+  ssh "${SSH_ARGS[@]}" "$host" "cd ~/$REMOTE_ROOT/model-5500 && sha256sum --quiet -c ../manifests/model-5500.sha256"
+  ssh "${SSH_ARGS[@]}" "$host" \
+    "test -d ~/$REMOTE_ROOT/model-5500h || docker run --rm --user \$(id -u):\$(id -g) --env HOME=\$HOME --mount type=bind,src=\$HOME/$REMOTE_ROOT,dst=\$HOME/$REMOTE_ROOT --entrypoint bash '$IMAGE' -c 'python3 \$HOME/$REMOTE_ROOT/optimization/build_hybrid.py verify && python3 \$HOME/$REMOTE_ROOT/optimization/build_hybrid.py build'"
+  ssh "${SSH_ARGS[@]}" "$host" "cd ~/$REMOTE_ROOT/model-5500h && sha256sum --quiet -c ../manifests/model-5500h.sha256"
+done
+
 # OpenSSH streams the checksum manifest through the Mac; rsync cannot copy
 # directly between two remote endpoints.
 ssh "${SSH_ARGS[@]}" "$HEAD" "cat ~/$REMOTE_ROOT/model.sha256.json" | \

@@ -11,8 +11,9 @@ if [[ "${1:-}" != "--local" ]]; then
 fi
 
 test -f "$HOME/$REMOTE_ROOT/model/config.json"
+test -f "$HOME/$REMOTE_ROOT/model-5500h/HYBRID.json"
 docker image inspect "$IMAGE" >/dev/null
 python3 "$HERE/launch.py" check --rank 0 >/dev/null
 ssh "${SSH_ARGS[@]}" "$WORKER" \
-  "test -f \$HOME/$REMOTE_ROOT/model/config.json && docker image inspect '$IMAGE' >/dev/null && python3 \$HOME/$REMOTE_ROOT/launch.py check --rank 1 >/dev/null"
-echo "Preflight passed: selected profile and cable mapping validate on both ranks; pinned image and model files exist."
+  "test -f \$HOME/$REMOTE_ROOT/model/config.json && test -f \$HOME/$REMOTE_ROOT/model-5500h/HYBRID.json && docker image inspect '$IMAGE' >/dev/null && python3 \$HOME/$REMOTE_ROOT/launch.py check --rank 1 >/dev/null"
+echo "Preflight passed: selected profile and cable mapping validate on both ranks; pinned image, main checkpoint and step-5500 hybrid exist."

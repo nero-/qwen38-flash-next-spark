@@ -24,14 +24,23 @@ def validate_config(data: dict) -> None:
         raise ValueError("remote_root must be a relative path with safe shell characters")
     if not (1 <= int(data["api_port"]) <= 65535 and 1 <= int(data["master_port"]) <= 65535):
         raise ValueError("API and master ports must be in 1..65535")
-    if not re.fullmatch(r"[0-9a-f]{40}", data["model"]["revision"]):
-        raise ValueError("model.revision must be a full immutable 40-character commit")
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", data["model"]["repository"]):
-        raise ValueError("model.repository must be an owner/name identifier")
+    for key in ("model", "trunk_model"):
+        if not re.fullmatch(r"[0-9a-f]{40}", data[key]["revision"]):
+            raise ValueError(f"{key}.revision must be a full immutable 40-character commit")
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", data[key]["repository"]):
+            raise ValueError(f"{key}.repository must be an owner/name identifier")
+    if not 1 <= int(data["kv_cache_gib"]) <= 64:
+        raise ValueError("kv_cache_gib must be a whole number of GiB in 1..64")
     if not re.fullmatch(r"[A-Za-z0-9_./-]+@sha256:[0-9a-f]{64}", data["image"]):
         raise ValueError("image must be pinned by a SHA-256 OCI digest")
+    for key, image in data.get("experimental_images", {}).items():
+        # Local derived tags are allowed here; launch receipts record their image IDs.
+        if not re.fullmatch(r"[a-z0-9]+", key) or not re.fullmatch(r"[A-Za-z0-9_./:-]+(?:@sha256:[0-9a-f]{64})?", image):
+            raise ValueError(f"unsafe experimental image entry: {key}")
     allowed_profiles = {"baseline", "hc", "hc-adaptive", "hc-prefill", "hc-prefill-dynamic", "hc-k20-mtp5"}
-    if data.get("default_profile") not in allowed_profiles:
+    # Modifiers after "+" are validated by launch.py check before any start.
+    if not re.fullmatch(r"[a-z0-9-]+(?:\+[a-z0-9]+)*", data.get("default_profile", "")) \
+            or data["default_profile"].split("+")[0] not in allowed_profiles:
         raise ValueError("default_profile is not an installable profile")
     for rank in data["ranks"]:
         ipaddress.ip_address(rank["ip"])
@@ -81,7 +90,11 @@ def find_ipv4_gid(hca_path: Path, interface: str) -> int:
     port = hca_path / "ports/1"
     matches = []
     for ndev in sorted((port / "gid_attrs/ndevs").iterdir(), key=lambda p: int(p.name)):
-        if ndev.read_text().strip() != interface:
+        try:
+            owner = ndev.read_text().strip()
+        except OSError:
+            continue  # unpopulated GID table slots raise EINVAL on read
+        if owner != interface:
             continue
         index = int(ndev.name)
         gid = (port / f"gids/{index}").read_text().strip()

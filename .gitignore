@@ -19,6 +19,7 @@ results/tp2/*
 !results/tp2/cable2-final-matrix.json
 !results/tp2/cables-model-summary.json
 !results/tp2/cables-comm-summary.json
+!results/tp2/campaign-20260926/
 results/tp2/trace-rank*/
 results/tp2/**/trace-*.json.gz
 results/tp1-opt-20260922/

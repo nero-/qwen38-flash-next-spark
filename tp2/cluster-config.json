@@ -3,6 +3,11 @@
     "repository": "local-inference-lab/Qwen3.8-Flash-Next-NVFP4",
     "revision": "7c4f1bc1a2d6847e0cbc01ac6b823f00251de8dd"
   },
+  "trunk_model": {
+    "repository": "local-inference-lab/Qwen3.8-Flash-Next-NVFP4",
+    "revision": "60215d26cf5e42c2db6128774032d57fc62678da"
+  },
+  "kv_cache_gib": 24,
   "image": "eugr/spark-vllm-b12x@sha256:5249a162cd39aa090e803243aef376e1f87f0fd4826f9249ea1ecd0c814b2c7e",
   "remote_root": "builds/qwen-tp2",
   "api_port": 8000,
@@ -30,6 +35,10 @@
       }
     }
   ],
+  "experimental_images": {
+    "b12xbeta": "qwen-tp2:0923-b12x-e39b437b",
+    "n0926": "eugr/spark-vllm-b12x@sha256:9400631d27ed275bc6c0d3e93e8e4104a06b3bfaf08e42f635f34c78f235bece"
+  },
   "default_cables": 2,
-  "default_profile": "hc-adaptive"
+  "default_profile": "hc-adaptive+cg4+m5500h"
 }

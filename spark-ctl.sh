@@ -16,11 +16,13 @@ case "${1:-help}" in
     ;;
   profile)
     case "${2:-}" in
-      balanced|adaptive) selected=hc-adaptive ;;
+      balanced|adaptive) selected=hc-adaptive+cg4+m5500h ;;
+      fp32state) selected=hc-adaptive+cg4+m5500h+fp32ssm ;;
+      previous) selected=hc-adaptive ;;
       original) selected=hc ;;
       coding) selected=hc-k20-mtp5 ;;
       baseline) selected=baseline ;;
-      *) echo 'Usage: ./spark-ctl.sh profile balanced|original|coding|baseline' >&2; exit 2 ;;
+      *) echo 'Usage: ./spark-ctl.sh profile balanced|fp32state|previous|original|coding|baseline' >&2; exit 2 ;;
     esac
     exec ssh "${ssh_args[@]}" "$SPARK_HOST" "python3 ~/$REMOTE_ROOT/select_profile.py $selected"
     ;;
@@ -36,7 +38,7 @@ case "${1:-help}" in
   help|-h|--help)
     cat <<EOF
 Usage: ./spark-ctl.sh start|stop|status|wait|logs|logs-r1|tunnel
-       ./spark-ctl.sh profile balanced|original|coding|baseline
+       ./spark-ctl.sh profile balanced|fp32state|previous|original|coding|baseline
        ./spark-ctl.sh cables 1|2
 
 start/stop control BOTH Sparks. Finish active requests before stopping.
@@ -46,7 +48,9 @@ Model: qwen3.8-flash-next-4p89bpw
 API through tunnel: http://localhost:8000/v1 (key: local if required)
 Do not start the old TP1 container while TP2 is running.
 profile restarts BOTH idle ranks and waits for readiness; active requests block it.
-balanced: adaptive HC decode, owned-row prefill, MTP3, BF16 head.
+balanced: adaptive HC + exact MTP3 graphs on the step-5500 hybrid checkpoint, 24 GiB KV.
+fp32state: balanced with FP32 recurrent state (checkpoint-native; ~2% C1 / ~8% C8 slower).
+previous: the September 24 default (adaptive HC on the main checkpoint).
 original: original HC decode backup, owned-row prefill, MTP3, BF16 head.
 coding: optional HC + top-20 draft + MTP5 for non-thinking speed workloads;
         99 tok/s in the earlier capped Tetris run. Target head remains BF16.

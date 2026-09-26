@@ -1,0 +1,45 @@
+{
+ "tag": "final-hc-adaptive_cg4_kv24_m5500h",
+ "cells": [
+  {
+   "length": 960,
+   "mean_abs": 0.23308,
+   "max_abs": 4.5332,
+   "exact": 0,
+   "nll": [
+    0.57247,
+    0.55924
+   ]
+  },
+  {
+   "length": 960,
+   "mean_abs": 0.22151,
+   "max_abs": 4.9585,
+   "exact": 0,
+   "nll": [
+    0.57247,
+    0.55079
+   ]
+  },
+  {
+   "length": 2048,
+   "mean_abs": 0.25491,
+   "max_abs": 6.5473,
+   "exact": 1,
+   "nll": [
+    0.72574,
+    0.72619
+   ]
+  },
+  {
+   "length": 2048,
+   "mean_abs": 0.28575,
+   "max_abs": 7.5932,
+   "exact": 0,
+   "nll": [
+    0.72574,
+    0.71827
+   ]
+  }
+ ]
+}

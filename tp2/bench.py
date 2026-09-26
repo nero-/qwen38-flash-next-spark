@@ -10,7 +10,7 @@ import urllib.request
 parser = argparse.ArgumentParser()
 parser.add_argument("tag")
 parser.add_argument("--launch-tag")
-parser.add_argument("--cases", nargs="+", choices=["prose", "coding", "matrix"], default=["matrix"])
+parser.add_argument("--cases", nargs="+", choices=["prose", "coding", "matrix", "odd", "quick", "c16"], default=["matrix"])
 args = parser.parse_args()
 root = Path.home() / "builds/qwen-tp2/evidence"
 base = "http://127.0.0.1:8000"
@@ -54,6 +54,15 @@ cases = {
     "matrix": ["--contexts", "8192,32768,65536", "--concurrency", "1,8",
                "--duration", "30", "--max-tokens", "2048",
                "--standalone-prefill", "--prefill-contexts", "8k,32k,64k"],
+    # Concurrencies whose MTP3 verify batches (12/20 tokens) fall between default graph sizes.
+    # Screening: one prefill pair and C1/C8 decode at 8K; not a replacement for the full matrix.
+    "quick": ["--contexts", "8192", "--concurrency", "1,8", "--duration", "20", "--max-tokens", "2048",
+              "--standalone-prefill", "--prefill-contexts", "8k,64k"],
+    # Full-occupancy decode: every sequence slot busy (max_num_seqs=16).
+    "c16": ["--skip-prefill", "--contexts", "8192,32768", "--concurrency", "16",
+            "--duration", "30", "--max-tokens", "2048"],
+    "odd": ["--skip-prefill", "--contexts", "8192", "--concurrency", "3,5",
+            "--duration", "30", "--max-tokens", "2048"],
     "prose": ["--completion-stats", "--prompt", prose, "--profile-concurrency", "1",
               "--profile-runs", "5", "--max-tokens", "600", "--completion-stats-temperature", "0",
               "--completion-stats-top-p", "1", "--reasoning-effort", "none",

@@ -15,7 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 class DeploymentConfigTests(unittest.TestCase):
     def test_default_and_both_cable_maps(self):
         config = load_config(ROOT)
-        self.assertEqual(config["default_profile"], "hc-adaptive")
+        self.assertEqual(config["default_profile"], "hc-adaptive+cg4+m5500h")
+        self.assertEqual(config["kv_cache_gib"], 24)
         self.assertEqual(config["default_cables"], 2)
         self.assertEqual(
             [rail["hca"] for rail in selected_rails(config, 0, 2)],
@@ -46,6 +47,18 @@ class DeploymentConfigTests(unittest.TestCase):
                 (port / "gids").mkdir(exist_ok=True)
                 (port / "gids" / index).write_text("::ffff:192.0.2.4\n")
             self.assertEqual(find_ipv4_gid(Path(tmp), "dac0"), 1)
+
+    def test_unreadable_gid_slots_are_skipped(self):
+        # Unpopulated sysfs GID slots raise EINVAL on read; discovery must skip them.
+        with tempfile.TemporaryDirectory() as tmp:
+            port = Path(tmp) / "ports/1"
+            for sub in ("gid_attrs/ndevs", "gid_attrs/types", "gids"):
+                (port / sub).mkdir(parents=True)
+            (port / "gid_attrs/ndevs/2").mkdir()  # reading a directory raises OSError
+            (port / "gid_attrs/ndevs/3").write_text("dac0\n")
+            (port / "gid_attrs/types/3").write_text("RoCE v2\n")
+            (port / "gids/3").write_text("::ffff:192.0.2.4\n")
+            self.assertEqual(find_ipv4_gid(Path(tmp), "dac0"), 3)
 
     def test_request_metrics_gate_switching(self):
         self.assertFalse(active_requests('vllm:num_requests_running{engine="0"} 0\n'))

@@ -1,0 +1,89 @@
+{
+ "tag": "final-hc-adaptive_cg4_kv24_m5500h",
+ "sessions": 8,
+ "prompt_tokens": 258000,
+ "wall_s": 83.2,
+ "preemptions": 0.0,
+ "peak_used_gib": {
+  "rank0": 102.51,
+  "rank1": 99.52
+ },
+ "prefix_cache_hit_rate": 0.9526,
+ "peak_running": 8.0,
+ "peak_kv_usage": 0.7432,
+ "results": [
+  {
+   "session": 0,
+   "prompt_tokens": 257998,
+   "wall_s": 78.2,
+   "completion_tokens": 473,
+   "retrieved": 1,
+   "wanted": 1,
+   "text": "gamma-0863204\n\nThe archive consists of a massive, repetitive log of ordinary warehouse ledger entries. Each entry consistently lists the same four items: shelves, labels, crates, and loading bays. This monotonous data stream is interrupted only by the inclusion of specific audit passkeys for ALPHA, "
+  },
+  {
+   "session": 1,
+   "prompt_tokens": 257998,
+   "wall_s": 74.1,
+   "completion_tokens": 512,
+   "retrieved": 1,
+   "wanted": 1,
+   "text": "gamma-1863204\n\nThe archive consists of a massive, repetitive sequence of identical text entries describing a warehouse ledger. These entries uniformly list shelves, labels, crates, and loading bays as the primary inventory items. The document is structured as a long, monotonous log with no variation"
+  },
+  {
+   "session": 2,
+   "prompt_tokens": 257998,
+   "wall_s": 75.3,
+   "completion_tokens": 434,
+   "retrieved": 1,
+   "wanted": 1,
+   "text": "gamma-2863204\n\nThe archive consists of a massive, repetitive log of ordinary warehouse ledger entries that uniformly list shelves, labels, crates, and loading bays. Embedded within this extensive text are three distinct audit passkeys labeled ALPHA, BETA, and GAMMA, each accompanied by a unique nume"
+  },
+  {
+   "session": 3,
+   "prompt_tokens": 257998,
+   "wall_s": 79.5,
+   "completion_tokens": 461,
+   "retrieved": 1,
+   "wanted": 1,
+   "text": "gamma-3863204\n\nThe archive consists of a massive, repetitive log of ordinary warehouse ledger entries. Each entry consistently lists the same four items: shelves, labels, crates, and loading bays. The document is structured as a continuous stream of these identical records, interrupted only by speci"
+  },
+  {
+   "session": 4,
+   "prompt_tokens": 257998,
+   "wall_s": 77.2,
+   "completion_tokens": 417,
+   "retrieved": 1,
+   "wanted": 1,
+   "text": "gamma-4863204\n\nThe archive consists of a massive, repetitive log of ordinary warehouse ledger entries that uniformly list shelves, labels, crates, and loading bays. Embedded within this dense text are three distinct audit passkeys labeled ALPHA, BETA, and GAMMA, each accompanied by a unique numerica"
+  },
+  {
+   "session": 5,
+   "prompt_tokens": 257998,
+   "wall_s": 73.8,
+   "completion_tokens": 512,
+   "retrieved": 1,
+   "wanted": 1,
+   "text": "gamma-5863204\n\nThe archive consists of a massive, repetitive log of ordinary warehouse ledger entries. Each entry uniformly lists standard inventory items such as shelves, labels, crates, and loading bays. The text is interspersed with specific audit passkeys for ALPHA, BETA, and GAMMA amidst the re"
+  },
+  {
+   "session": 6,
+   "prompt_tokens": 257998,
+   "wall_s": 79.7,
+   "completion_tokens": 512,
+   "retrieved": 1,
+   "wanted": 1,
+   "text": "gamma-6863204\n\nThe archive consists of a massive, repetitive log of ordinary warehouse ledger entries that uniformly list shelves, labels, crates, and loading bays. Embedded within this extensive text are three distinct audit passkeys labeled ALPHA, BETA, and GAMMA, each accompanied by a unique nume"
+  },
+  {
+   "session": 7,
+   "prompt_tokens": 257998,
+   "wall_s": 80.3,
+   "completion_tokens": 505,
+   "retrieved": 1,
+   "wanted": 1,
+   "text": "gamma-7863204\n\nThe archive consists of a massive, repetitive log of ordinary warehouse ledger entries that uniformly list shelves, labels, crates, and loading bays. Embedded within this extensive block of redundant text are three distinct audit passkeys labeled ALPHA, BETA, and GAMMA, each accompani"
+  }
+ ],
+ "passed": true
+}

@@ -1,0 +1,70 @@
+{
+ "tag": "final-hc-adaptive_cg4_kv24_m5500h",
+ "sessions": 8,
+ "prompt_tokens": 258000,
+ "wall_s": 913.5,
+ "preemptions": 0.0,
+ "peak_used_gib": {
+  "rank0": 102.53,
+  "rank1": 99.51
+ },
+ "results": [
+  {
+   "session": 0,
+   "prompt_tokens": 258000,
+   "wall_s": 371.8,
+   "retrieved": 3,
+   "text": "ALPHA: alpha-0731826\nBETA: beta-0492175\nGAMMA: gamma-0863204"
+  },
+  {
+   "session": 1,
+   "prompt_tokens": 258000,
+   "wall_s": 832.1,
+   "retrieved": 3,
+   "text": "ALPHA: alpha-1731826\nBETA: beta-1492175\nGAMMA: gamma-1863204"
+  },
+  {
+   "session": 2,
+   "prompt_tokens": 258000,
+   "wall_s": 142.5,
+   "retrieved": 3,
+   "text": "ALPHA: alpha-2731826\nBETA: beta-2492175\nGAMMA: gamma-2863204"
+  },
+  {
+   "session": 3,
+   "prompt_tokens": 258000,
+   "wall_s": 488.2,
+   "retrieved": 3,
+   "text": "ALPHA: alpha-3731826\nBETA: beta-3492175\nGAMMA: gamma-3863204"
+  },
+  {
+   "session": 4,
+   "prompt_tokens": 258000,
+   "wall_s": 602.1,
+   "retrieved": 3,
+   "text": "ALPHA: alpha-4731826\nBETA: beta-4492175\nGAMMA: gamma-4863204"
+  },
+  {
+   "session": 5,
+   "prompt_tokens": 258000,
+   "wall_s": 718.6,
+   "retrieved": 3,
+   "text": "ALPHA: alpha-5731826\nBETA: beta-5492175\nGAMMA: gamma-5863204"
+  },
+  {
+   "session": 6,
+   "prompt_tokens": 258000,
+   "wall_s": 910.4,
+   "retrieved": 3,
+   "text": "ALPHA: alpha-6731826\nBETA: beta-6492175\nGAMMA: gamma-6863204"
+  },
+  {
+   "session": 7,
+   "prompt_tokens": 258000,
+   "wall_s": 257.7,
+   "retrieved": 3,
+   "text": "ALPHA: alpha-7731826\nBETA: beta-7492175\nGAMMA: gamma-7863204"
+  }
+ ],
+ "passed": true
+}

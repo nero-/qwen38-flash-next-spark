@@ -14,7 +14,7 @@ Before bootstrap, ensure rank 0 can authenticate to rank 1 without an interactiv
 bash install.sh
 ```
 
-The script checks Docker reachability on both hosts and refuses to run while either `qwen-tp2` container is active. It copies the TP2 runtime files without deleting remote model, cache, receipt, or selection data, pulls the pinned OCI image, independently downloads the exact model commit on each rank, and verifies every non-cache model file against SHA-256 hashes from rank 0. It initializes profile/cable selections only when they do not already exist. Pass `--reset-selection` only when deliberately replacing those selections with the values in the config. The bootstrap does not change host networking or start serving.
+The script checks Docker reachability on both hosts and refuses to run while either `qwen-tp2` container is active. It copies the TP2 runtime files without deleting remote model, cache, receipt, or selection data, pulls the pinned OCI image, independently downloads the exact model commit on each rank, and verifies every non-cache model file against SHA-256 hashes from rank 0. Each rank then downloads the pinned step-5500 trunk, builds the default hybrid checkpoint with `optimization/build_hybrid.py` (which first verifies that both revisions share the same source attention weights), and checks both trees against the manifests in `manifests/`. Expect about 200 GiB of additional disk per rank; hybrid shards that do not change are hardlinked. It initializes profile/cable selections only when they do not already exist. Pass `--reset-selection` only when deliberately replacing those selections with the values in the config. The bootstrap does not change host networking or start serving.
 
 After it completes, run the read-only, hardware-aware preflight on the Mac:
 
@@ -32,7 +32,9 @@ The copied [spark-ctl.sh](../spark-ctl.sh) controller on the Mac runs:
 ./spark-ctl.sh start
 ./spark-ctl.sh wait
 ./spark-ctl.sh status
-./spark-ctl.sh profile balanced   # hc-adaptive + MTP3, selected default
+./spark-ctl.sh profile balanced   # hc-adaptive+cg4+m5500h, selected default
+./spark-ctl.sh profile fp32state  # balanced with FP32 recurrent state
+./spark-ctl.sh profile previous   # September 24 default: hc-adaptive, main checkpoint
 ./spark-ctl.sh profile original   # original HC + MTP3
 ./spark-ctl.sh profile coding     # optional HC/top-20/MTP5 profile
 ./spark-ctl.sh cables 1           # validate and switch both ranks together
@@ -47,9 +49,11 @@ At start, the launcher sets MTU 9000 on selected DAC interfaces only, when neede
 
 The image, model and custom source override hashes are pinned. The overrides preserve their upstream Apache-2.0 headers; the image's and model repository's own license/usage terms remain applicable. See [provenance notes](PROVENANCE.md). Deployment evidence below belongs to the current two-Spark cluster and should not be read as proof of behavior on another cluster.
 
-Both ranks are serving the selected `hc-adaptive` profile (MTP3). Its full LIL
-matrix completed without errors and 256 HC projection/dispatch tests passed.
-Five-image and 261,888-token passkey checks previously passed on the HC port.
+Both ranks are serving the selected `hc-adaptive+cg4+m5500h` profile (MTP3) with
+24 GiB KV per rank. Its full LIL matrix, C16 cells and quality suite completed
+without errors, and eight concurrent 258,000-token sessions passed with 0
+preemptions (see the September 26 section). 256 HC projection/dispatch tests
+passed earlier; five-image and 261,888-token passkey checks passed on the HC port.
 
 Both nodes use `~/builds/qwen-tp2` for launcher, checkpoint, compiler cache and
 receipts. Rank 0 retains a compatibility symlink at the old model location.
@@ -59,7 +63,8 @@ Image: `eugr/spark-vllm-b12x@sha256:5249a162cd39aa090e803243aef376e1f87f0fd4826f
 vLLM `57fdda71b`, b12x `8a99d639`.
 
 The baseline profile keeps the original checkpoint and full vocabulary, resident
-PLE, BF16 target-head weights and recurrent state, FP8 KV (20 GiB per rank),
+PLE, BF16 target-head weights and recurrent state, FP8 KV (`kv_cache_gib`, now 24 GiB
+per rank for every profile; 20 GiB before September 26),
 MTP3 probabilistic drafting with block verification, CUDA GDN decode and
 FlashInfer prefill, b12x linear/MoE/loader, context 262144, 16 sequences,
 8192 scheduler tokens, and graph-capture cap 64. It does not include the TP4
@@ -92,7 +97,9 @@ Mac controller: `~/Agent/Builds/spark-ctl.sh` controls both ranks.
 ./spark-ctl.sh wait
 ./spark-ctl.sh status
 ./spark-ctl.sh stop
-./spark-ctl.sh profile balanced  # Adaptive HC default, MTP3
+./spark-ctl.sh profile balanced  # Adaptive HC + exact graphs, step-5500 hybrid
+./spark-ctl.sh profile fp32state # Balanced with FP32 recurrent state
+./spark-ctl.sh profile previous  # September 24 default (main checkpoint)
 ./spark-ctl.sh profile original  # Original HC backup, MTP3
 ./spark-ctl.sh profile coding    # Experimental HC/top20/MTP5
 ./spark-ctl.sh profile baseline  # Original TP2 configuration
@@ -143,7 +150,41 @@ benchmark or a full quality evaluation. Resident PLE is confirmed in both ranks'
 resolved configuration (`table_memory='device'`, `cpu_offload=False`).
 
 
-## Current selection — September 24 UTC
+## Current selection — September 26 UTC
+
+`balanced` selects `hc-adaptive+cg4+m5500h`; KV is pinned at 24 GiB per rank for
+all profiles. Profiles compose as `<base>+<modifier>`: `cg4` captures every MTP3
+verify size (multiples of 4 up to 64) instead of padding odd concurrencies;
+`m5500h` serves the step-5500 hybrid checkpoint (`model-5500h`); `fp32ssm` stores
+recurrent state in FP32. Full record: [campaign](optimization/CAMPAIGN-20260926.md).
+
+| Metric | Previous default (Sep 24 cfg, re-measured) | Selected |
+|---|---:|---:|
+| Prefill 8K / 32K / 64K tok/s | 3718 / 3637 / 3405 | 3671 / 3356 / 3349 |
+| C1 tok/s 8K / 32K / 64K | 59.4 / 60.7 / 61.9 | 65.1 / 55.0 / 61.8 |
+| C8 aggregate 8K / 32K / 64K | 231.5 / 230.8 / 225.0 | 231.5 / 227.7 / 226.9 |
+| C3 / C5 aggregate at 8K | 127.0 / 173.9 | 132.0 / 179.0 |
+| C16 aggregate 8K / 32K | 342.6 / 332.0 | 344.6 / 328.9 |
+| Wiki NLL · GSM8K · MMLU-Pro | 1.396 · 97.6% · 67.2% | 1.397 · 96.8% · 66.9% |
+| KV tokens (max-context sessions) | 2,229,941 (8.5×) at 20 GiB | 2,675,242 (10.2×) |
+| Peak used RAM r0 / r1 | 97.3 / – GiB | 102.5 / 99.5 GiB |
+
+Speed and quality are equal within measured noise (single LIL cells vary ±3–5%;
+C1 moves with MTP acceptance). The selection is a capacity and checkpoint upgrade,
+plus a small mid-concurrency decode gain from exact graph sizes. Rejected with
+data: b12x beta `e39b437b` (−15% 32K prefill, −7% 64K C8), `nightly-20260926`
+(flat), b12x GDN kernels (slowest), published step-5500 (−14% C1 steps with BF16
+attention and a Marlin drafter; no quality gain).
+
+Eight concurrent sessions, each a unique 258,000-token context, retrieved 24/24
+passkeys at 5/50/95% depth; a follow-up on all eight at once decoded 8/8
+concurrently with 95.3% prefix-cache hits and 74.3% peak KV usage, 0 preemptions.
+
+Identical requests are not bitwise reproducible on this stack (per-token
+log-probabilities drift ~0.2 nats between repeats, in every profile including the
+stock baseline); see the campaign's open issue.
+
+## Selection — September 24 UTC
 
 `balanced` selects `hc-adaptive` at the user's request; `original` selects `hc`.
 Both keep identical precision, context capacity, resident PLE and MTP3. The
