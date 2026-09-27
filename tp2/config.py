@@ -24,7 +24,7 @@ def validate_config(data: dict) -> None:
         raise ValueError("remote_root must be a relative path with safe shell characters")
     if not (1 <= int(data["api_port"]) <= 65535 and 1 <= int(data["master_port"]) <= 65535):
         raise ValueError("API and master ports must be in 1..65535")
-    for key in ("model", "trunk_model"):
+    for key in ("model", "trunk_model", "hybrid_model"):
         if not re.fullmatch(r"[0-9a-f]{40}", data[key]["revision"]):
             raise ValueError(f"{key}.revision must be a full immutable 40-character commit")
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", data[key]["repository"]):

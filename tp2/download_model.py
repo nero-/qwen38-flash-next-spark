@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Download an immutable model snapshot with the pinned runtime image.
 
-download_model.py [main|trunk]: main -> model/ (config "model"),
-trunk -> model-5500/ (config "trunk_model", input to the hybrid build).
+download_model.py [main|hybrid|trunk]: main -> model/ (config "model"),
+hybrid -> model-5500h/ (config "hybrid_model", the default serving checkpoint),
+trunk -> model-5500/ (config "trunk_model", only for building the hybrid from source).
 """
 import os
 import sys
@@ -13,7 +14,8 @@ from config import load_config
 ROOT = Path(__file__).resolve().parent
 cfg = load_config(ROOT)
 which = sys.argv[1] if len(sys.argv) > 1 else "main"
-key, directory = {"main": ("model", "model"), "trunk": ("trunk_model", "model-5500")}[which]
+key, directory = {"main": ("model", "model"), "hybrid": ("hybrid_model", "model-5500h"),
+                  "trunk": ("trunk_model", "model-5500")}[which]
 target = Path.home() / cfg["remote_root"] / directory
 target.mkdir(parents=True, exist_ok=True)
 # The Xet transfer backend needs a writable cache; keep it inside the (excluded) snapshot .cache.

@@ -4,9 +4,14 @@
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "$0")" && pwd)"
 CONFIG="$HERE/cluster-config.json"
-RESET_SELECTION=0
-if [[ "${1:-}" == "--reset-selection" ]]; then RESET_SELECTION=1; shift; fi
-[[ $# == 0 ]] || { echo 'Usage: bash tp2/bootstrap.sh [--reset-selection]' >&2; exit 2; }
+RESET_SELECTION=0 BUILD_HYBRID=0
+for arg in "$@"; do
+  case "$arg" in
+    --reset-selection) RESET_SELECTION=1 ;;
+    --build-hybrid) BUILD_HYBRID=1 ;;
+    *) echo 'Usage: bash tp2/bootstrap.sh [--reset-selection] [--build-hybrid]' >&2; exit 2 ;;
+  esac
+done
 cfg() { python3 "$HERE/config.py" "$1"; }
 REMOTE_ROOT="$(cfg remote_root)" IMAGE="$(cfg image)"
 HEAD="$(cfg ranks.0.ssh)" WORKER="$(cfg ranks.1.ssh)"
@@ -39,16 +44,23 @@ for host in "$HEAD" "$WORKER"; do
   ssh "${SSH_ARGS[@]}" "$host" "python3 ~/$REMOTE_ROOT/model_manifest.py write"
 done
 
-# Default checkpoint: step-5500 QAD trunk with main's MXFP8 attention and NVFP4 MTP
-# experts (optimization/build_hybrid.py). Each rank downloads the pinned trunk and
-# builds the hybrid itself; both trees must match the committed SHA-256 manifests.
+# Default checkpoint: the step-5500 QAD hybrid (trained step-5500 tensors with main's
+# MXFP8 attention and NVFP4 MTP experts), downloaded from its pinned Hugging Face
+# revision. --build-hybrid instead downloads the step-5500 trunk and rebuilds it with
+# optimization/build_hybrid.py. Either way every file except README.md (the HF copy
+# carries the model card) must match the committed manifest.
 for host in "$HEAD" "$WORKER"; do
-  ssh "${SSH_ARGS[@]}" "$host" \
-    "docker run --rm --network host --user \$(id -u):\$(id -g) --env HOME=\$HOME --env HF_TOKEN --mount type=bind,src=\$HOME/$REMOTE_ROOT,dst=\$HOME/$REMOTE_ROOT --entrypoint /usr/bin/python3 '$IMAGE' \$HOME/$REMOTE_ROOT/download_model.py trunk"
-  ssh "${SSH_ARGS[@]}" "$host" "cd ~/$REMOTE_ROOT/model-5500 && sha256sum --quiet -c ../manifests/model-5500.sha256"
-  ssh "${SSH_ARGS[@]}" "$host" \
-    "test -d ~/$REMOTE_ROOT/model-5500h || docker run --rm --user \$(id -u):\$(id -g) --env HOME=\$HOME --mount type=bind,src=\$HOME/$REMOTE_ROOT,dst=\$HOME/$REMOTE_ROOT --entrypoint bash '$IMAGE' -c 'python3 \$HOME/$REMOTE_ROOT/optimization/build_hybrid.py verify && python3 \$HOME/$REMOTE_ROOT/optimization/build_hybrid.py build'"
-  ssh "${SSH_ARGS[@]}" "$host" "cd ~/$REMOTE_ROOT/model-5500h && sha256sum --quiet -c ../manifests/model-5500h.sha256"
+  if [[ $BUILD_HYBRID == 1 ]]; then
+    ssh "${SSH_ARGS[@]}" "$host" \
+      "docker run --rm --network host --user \$(id -u):\$(id -g) --env HOME=\$HOME --env HF_TOKEN --mount type=bind,src=\$HOME/$REMOTE_ROOT,dst=\$HOME/$REMOTE_ROOT --entrypoint /usr/bin/python3 '$IMAGE' \$HOME/$REMOTE_ROOT/download_model.py trunk"
+    ssh "${SSH_ARGS[@]}" "$host" "cd ~/$REMOTE_ROOT/model-5500 && sha256sum --quiet -c ../manifests/model-5500.sha256"
+    ssh "${SSH_ARGS[@]}" "$host" \
+      "test -d ~/$REMOTE_ROOT/model-5500h || docker run --rm --user \$(id -u):\$(id -g) --env HOME=\$HOME --mount type=bind,src=\$HOME/$REMOTE_ROOT,dst=\$HOME/$REMOTE_ROOT --entrypoint bash '$IMAGE' -c 'python3 \$HOME/$REMOTE_ROOT/optimization/build_hybrid.py verify && python3 \$HOME/$REMOTE_ROOT/optimization/build_hybrid.py build'"
+  else
+    ssh "${SSH_ARGS[@]}" "$host" \
+      "test -d ~/$REMOTE_ROOT/model-5500h || docker run --rm --network host --user \$(id -u):\$(id -g) --env HOME=\$HOME --env HF_TOKEN --mount type=bind,src=\$HOME/$REMOTE_ROOT,dst=\$HOME/$REMOTE_ROOT --entrypoint /usr/bin/python3 '$IMAGE' \$HOME/$REMOTE_ROOT/download_model.py hybrid"
+  fi
+  ssh "${SSH_ARGS[@]}" "$host" "cd ~/$REMOTE_ROOT/model-5500h && grep -v '  ./README.md\$' ../manifests/model-5500h.sha256 | sha256sum --quiet -c -"
 done
 
 # OpenSSH streams the checksum manifest through the Mac; rsync cannot copy
