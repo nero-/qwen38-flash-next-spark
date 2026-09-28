@@ -53,6 +53,12 @@ def retire(stamp: str, label: str) -> None:
 
 
 subprocess.run(["python3", str(root / "launch.py"), "check", "--profile", requested], check=True, stdout=subprocess.DEVNULL)
+if requested == old and running():
+    try:
+        urllib.request.urlopen(f"http://127.0.0.1:{cfg['api_port']}/health", timeout=5)
+        raise SystemExit(f"Already serving {requested}")
+    except OSError:
+        pass  # selected but unhealthy: restart it below
 ensure_idle()
 stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 retire(stamp, "retired")

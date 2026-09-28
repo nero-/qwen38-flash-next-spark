@@ -1,4 +1,8 @@
-# Qwen3.8-Flash-Next on two DGX Sparks
+# Qwen3.8-Flash-Next on DGX Spark
+
+**One Spark:** [tp1/README.md](tp1/README.md) packages a single-Spark deployment of the same pinned image and step-5500 hybrid checkpoint. Its selected profile `tp1+cg4+mxhead` measured 145 / 143 / 143 tok/s aggregate at C8 (8K / 32K / 64K), about 40 tok/s at C1, ~2,400 tok/s prefill, 4.8 concurrent 262K contexts and 113.4 GiB peak RAM on gx10-r3, with quality matching TP2. Control it from the Mac with `./spark1-ctl.sh`.
+
+**Two Sparks:** the rest of this page.
 
 This repository packages a two-node vLLM deployment for DGX Spark. It preserves the full model vocabulary, BF16 target head and recurrent state, resident PLE, a pinned 24 GiB FP8 KV cache per rank (2,675,242 tokens, 10.2 concurrent 262,144-token contexts), and 262,144-token context. The selected profile is `hc-adaptive+cg4+m5500h`: adaptive HC with MTP3 and exact MTP3 CUDA-graph sizes, serving a step-5500 QAD hybrid checkpoint. `hc-adaptive` on the main checkpoint remains available as `previous`, and `hc` as the original-HC backup. The example cluster selects two DAC cables.
 
