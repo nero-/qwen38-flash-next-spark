@@ -1,0 +1,13 @@
+{
+  "ssh": "nero@192.168.50.5",
+  "ssh_options": ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10"],
+  "remote_root": "builds/qwen-tp1",
+  "api_port": 8000,
+  "image": "eugr/spark-vllm-b12x@sha256:5249a162cd39aa090e803243aef376e1f87f0fd4826f9249ea1ecd0c814b2c7e",
+  "hybrid_model": {
+    "repository": "JMNI-Labs/Qwen3.8-Flash-Next-NVFP4-QAD5500-Hybrid",
+    "revision": "87c8f2fb738b597de99bf9a885130f4a18a94f3d"
+  },
+  "kv_cache_gib": 20,
+  "default_profile": "tp1+cg4+mxhead"
+}
