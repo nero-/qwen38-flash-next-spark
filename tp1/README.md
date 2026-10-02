@@ -120,6 +120,7 @@ python3 bench.py TAG --cases matrix odd c16     # unmodified LIL v0.6.2 + RAM pe
 python3 quality_eval.py run TAG                 # NLL, GSM8K, MMLU-Pro (same frozen inputs as TP2)
 python3 quality_eval.py compare TAG_A TAG_B
 python3 capacity_check.py TAG --sessions 4      # N concurrent 258K sessions; then --followup
+python3 tokenizer_check.py TAG                  # tokenizer time vs cold TTFT on ~250K tokens; token-ID and detokenizer hashes
 python3 campaign.py --prefix P tp1:matrix:q tp1+cg4:quick
 python3 summarize_arms.py TAG...
 ```
