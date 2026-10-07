@@ -118,16 +118,18 @@ bash tp1/preflight.sh     # read-only check of the selected profile's image and 
 
 Bootstrap fetches what the default profile needs: the CSF container (verified against
 `SHA256SUMS`, then `serve-csf/` built by [prepare_csf.py](prepare_csf.py)), or the hybrid
-for non-`csf` profiles (`--all-models` fetches both). The `kk1007` image is a local build:
-on a Spark without it, bootstrap stops and points at
-[images/build-kk-csf.sh](images/build-kk-csf.sh). Bootstrap never starts a server and
+for non-`csf` profiles (`--all-models` fetches both), and pulls the profile's image by
+digest. Bootstrap never starts a server and
 refuses to run while `qwen-tp1` or `qwen-tp2` is running on the host. Both checkpoints are
 public; set `HF_TOKEN` on the Spark only for a gated snapshot.
 
 ## Serving image
 
-`kk1007` is pinned in `node-config.json` by its local image ID (`sha256:a03faca5…`). To
-rebuild it, stop `qwen-tp1` and run on the Spark:
+`kk1007` is published as
+[`ghcr.io/jmni-labs/qwen38-spark-vllm:kk1007-csf`](https://github.com/orgs/JMNI-labs/packages/container/package/qwen38-spark-vllm)
+and pinned in `node-config.json` by digest (`sha256:66d59ede…`, image ID `sha256:a03faca5…`),
+so bootstrap pulls it like any other image, on any Spark. The image contains no model
+weights. To rebuild it, stop `qwen-tp1` and run on the Spark:
 
 ```bash
 bash ~/builds/qwen-tp1/images/build-kk-csf.sh   # ~95 min; vLLM and FlashInfer compile
@@ -137,7 +139,9 @@ The script checks out [eugr/spark-vllm-docker](https://github.com/eugr/spark-vll
 `73f01ce`, pins InstantTensor to 0.2.0 (0.2.1, released 2026-10-06, breaks eugr's
 InstantTensor patch step), pins vLLM and b12x to the commits above instead of the branch
 heads, runs eugr's `--exp-b12x --rebuild-vllm` build with FlashInfer `f8d3729e`, and checks
-the image for the pinned commits and the CSF reader. A rebuild gets a new image ID; update
+the image for the pinned commits and the CSF reader. A rebuild gets a new image ID: push it
+(`docker tag` + `docker push` to `ghcr.io/jmni-labs/qwen38-spark-vllm`, after `docker login
+ghcr.io` with a `write:packages` token) and pin the new digest in
 `experimental_images.kk1007`. The deployed image was built in two steps (the same build,
 then the runner stage again after the InstantTensor pin) from identical inputs; the
 one-pass script has not been run end to end. Once an eugr nightly carries the CSF reader,

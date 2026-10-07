@@ -2,7 +2,7 @@
 
 This model is based on [Qwen3.8-Flash-Next-NVFP4-MXFP8-CSF-QAD](https://huggingface.co/local-inference-lab/Qwen3.8-Flash-Next-NVFP4-MXFP8-CSF-QAD) by Local Inference Lab, Inc., a non-profit organization, available at <https://huggingface.co/local-inference-lab/Qwen3.8-Flash-Next-NVFP4-MXFP8-CSF-QAD>. Qwen3.8-Flash-Next-NVFP4-MXFP8-CSF-QAD is licensed under the Local Inference Lab License, Version 1.0.
 
-**One Spark:** [tp1/README.md](tp1/README.md) serves the lossless NVFP4-CSF container of the same step-5500 hybrid checkpoint on a locally built B12X image with the CSF reader. Its selected profile `tp1+cg4+mxhead+kk1007+csf+kv24` measured about 2,370 tok/s prefill, 40–45 tok/s at C1 and 144–149 tok/s aggregate at C8 (8K / 32K / 64K), with quality matching TP2; the memory CSF frees went into KV: 1.51M tokens (5.76 concurrent 262K contexts, up from 4.8) at 113.3 GiB peak RAM on gx10-r3. Control it from the Mac with `./spark1-ctl.sh`.
+**One Spark:** [tp1/README.md](tp1/README.md) serves the lossless NVFP4-CSF container of the same step-5500 hybrid checkpoint on a B12X image with the CSF reader, built from pinned commits and published at `ghcr.io/jmni-labs/qwen38-spark-vllm`. Its selected profile `tp1+cg4+mxhead+kk1007+csf+kv24` measured about 2,370 tok/s prefill, 40–45 tok/s at C1 and 144–149 tok/s aggregate at C8 (8K / 32K / 64K), with quality matching TP2; the memory CSF frees went into KV: 1.51M tokens (5.76 concurrent 262K contexts, up from 4.8) at 113.3 GiB peak RAM on gx10-r3. Control it from the Mac with `./spark1-ctl.sh`.
 
 **Two Sparks:** the rest of this page.
 

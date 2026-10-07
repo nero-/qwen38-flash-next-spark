@@ -14,7 +14,7 @@
     "sha256sums_sha256": "c3cf47c87e6999f5cd49d9156ccd5e5c0a5f3140c9c6dc0db84e8b5d01893e72"
   },
   "experimental_images": {
-    "kk1007": "sha256:a03faca52773864c601d78836ee96dfaed1b6a18b50a58e960efaa6f8e9cebbd"
+    "kk1007": "ghcr.io/jmni-labs/qwen38-spark-vllm@sha256:66d59ede97402ce7b997dcd9e894ddd91effe090d8ca75bb29972c51680bf148"
   },
   "kv_cache_gib": 20,
   "default_profile": "tp1+cg4+mxhead+kk1007+csf+kv24"
