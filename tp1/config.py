@@ -12,6 +12,7 @@ FLAG_MODIFIERS = {
     "greedyspec",  # vLLM default draft/rejection sampling instead of probabilistic/block
     "fp32ssm",     # checkpoint-native FP32 recurrent state (base: BF16)
     "resident",    # PLE table resident in memory (base: read rows from the checkpoint on disk)
+    "csf",         # serve the NVFP4-CSF container (compressed expert scales) instead of the hybrid
 }
 PARAM_MODIFIERS = {
     "kv": (1, 40),     # kvN: N GiB of FP8 KV cache, overriding kv_cache_gib
@@ -36,21 +37,35 @@ def validate_config(data: dict) -> None:
         raise ValueError("api_port must be in 1..65535")
     if not re.fullmatch(r"[A-Za-z0-9_./-]+@sha256:[0-9a-f]{64}", data["image"]):
         raise ValueError("image must be pinned by a SHA-256 OCI digest")
-    model = data["hybrid_model"]
-    if not re.fullmatch(r"[0-9a-f]{40}", model["revision"]):
-        raise ValueError("hybrid_model.revision must be a full immutable 40-character commit")
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", model["repository"]):
-        raise ValueError("hybrid_model.repository must be an owner/name identifier")
+    for key in ("hybrid_model", "csf_model"):
+        model = data[key]
+        if not re.fullmatch(r"[0-9a-f]{40}", model["revision"]):
+            raise ValueError(f"{key}.revision must be a full immutable 40-character commit")
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", model["repository"]):
+            raise ValueError(f"{key}.repository must be an owner/name identifier")
+    if not re.fullmatch(r"[0-9a-f]{64}", data["csf_model"]["sha256sums_sha256"]):
+        raise ValueError("csf_model.sha256sums_sha256 must be a SHA-256 hex digest")
+    for key, image in data.get("experimental_images", {}).items():
+        if not re.fullmatch(r"[a-z]+[0-9]*", key) or key in FLAG_MODIFIERS \
+                or re.fullmatch(r"(?:kv|mtp|seqs)\d+", key):
+            raise ValueError(f"experimental image key must be a new lowercase modifier name: {key}")
+        # A registry digest, or the image ID of a locally built image (no registry digest).
+        if not re.fullmatch(r"(?:[A-Za-z0-9_./-]+@)?sha256:[0-9a-f]{64}", image):
+            raise ValueError(f"experimental image {key} must be pinned by an OCI digest or local image ID")
     if not 1 <= int(data["kv_cache_gib"]) <= 40:
         raise ValueError("kv_cache_gib must be a whole number of GiB in 1..40")
-    parse_profile(data["default_profile"])
+    parse_profile(data["default_profile"], data.get("experimental_images", {}))
 
 
-def parse_profile(profile: str) -> dict:
-    """Return {"flags": set, "kv": int|None, "mtp": int|None, "seqs": int|None}."""
+def parse_profile(profile: str, images=()) -> dict:
+    """Return {"flags": set, "image": key|None, "kv": int|None, "mtp": int|None, "seqs": int|None}.
+
+    images: the experimental_images keys from node-config.json; each is a modifier
+    that swaps the serving image.
+    """
     if not PROFILE_RE.fullmatch(profile):
         raise ValueError(f"profile must look like tp1[+modifier...]: {profile}")
-    parsed = {"flags": set(), **{key: None for key in PARAM_MODIFIERS}}
+    parsed = {"flags": set(), "image": None, **{key: None for key in PARAM_MODIFIERS}}
     modifiers = profile.split("+")[1:]
     if len(set(modifiers)) != len(modifiers):
         raise ValueError(f"repeated modifier in {profile}")
@@ -58,10 +73,15 @@ def parse_profile(profile: str) -> dict:
         if mod in FLAG_MODIFIERS:
             parsed["flags"].add(mod)
             continue
+        if mod in images:
+            if parsed["image"] is not None:
+                raise ValueError(f"select at most one experimental image in {profile}")
+            parsed["image"] = mod
+            continue
         match = re.fullmatch(r"([a-z]+)(\d+)", mod)
         if not match or match.group(1) not in PARAM_MODIFIERS:
-            raise ValueError(f"unknown modifier {mod!r}; known: {sorted(FLAG_MODIFIERS)} "
-                             f"and {sorted(k + 'N' for k in PARAM_MODIFIERS)}")
+            raise ValueError(f"unknown modifier {mod!r}; known: {sorted(FLAG_MODIFIERS)}, "
+                             f"{sorted(k + 'N' for k in PARAM_MODIFIERS)} and images {sorted(images)}")
         key, value = match.group(1), int(match.group(2))
         low, high = PARAM_MODIFIERS[key]
         if parsed[key] is not None or not low <= value <= high:

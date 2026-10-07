@@ -14,7 +14,7 @@ p = argparse.ArgumentParser()
 p.add_argument("profile")
 requested = p.parse_args().profile
 try:
-    parse_profile(requested)
+    parse_profile(requested, cfg.get("experimental_images", {}))
 except ValueError as exc:
     p.error(str(exc))
 selection = root / "selected-profile.txt"
@@ -56,7 +56,8 @@ subprocess.run(["python3", str(root / "launch.py"), "check", "--profile", reques
 if requested == old and running():
     try:
         urllib.request.urlopen(f"http://127.0.0.1:{cfg['api_port']}/health", timeout=5)
-        raise SystemExit(f"Already serving {requested}")
+        print(f"Already serving {requested}")
+        raise SystemExit(0)
     except OSError:
         pass  # selected but unhealthy: restart it below
 ensure_idle()

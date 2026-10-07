@@ -1,0 +1,22 @@
+build_date: 2026-10-07T09:26:47Z
+build_script_commit: 73f01ceea6369b8d4451462f094c20cb10559c11
+local_changes: "Dockerfile: instanttensor==0.2.0 (0.2.1 breaks patch_instanttensor_vllm_memory.py); runner rebuilt from cached wheels"
+vllm_version: 0.1.dev21793+ge07345714.d20261007
+vllm_commit: e07345714ba82bd32ab88b963223b37d2338ca5f
+flashinfer_commit: f8d3729e9c85d20afdf4a1e672771cdb157e0e33
+gpu_arch: 12.1a
+base_image: ${CUDA_IMAGE}
+build_args:
+  vllm_repo: "https://github.com/local-inference-lab/vllm"
+  vllm_ref: dev/karmic-kraken
+  torch_version: "2.13.0"
+  torchvision_version: "0.28.0"
+  torchaudio_version: "2.11.0"
+  cutlass_dsl_version: "4.7.0"
+  b12x_repo: "https://github.com/lukealonso/b12x.git"
+  b12x_ref: "master"
+  b12x_from_pypi: 0
+  transformers_5: true
+  exp_mxfp4: false
+  vllm_prs: ""
+  build_jobs: 16

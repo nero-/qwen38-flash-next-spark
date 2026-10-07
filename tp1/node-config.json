@@ -8,6 +8,14 @@
     "repository": "JMNI-Labs/Qwen3.8-Flash-Next-NVFP4-QAD5500-Hybrid",
     "revision": "87c8f2fb738b597de99bf9a885130f4a18a94f3d"
   },
+  "csf_model": {
+    "repository": "local-inference-lab/Qwen3.8-Flash-Next-NVFP4-MXFP8-CSF-QAD",
+    "revision": "ac1c8d8edfb88a41df837e8ca431e0ec237c139d",
+    "sha256sums_sha256": "c3cf47c87e6999f5cd49d9156ccd5e5c0a5f3140c9c6dc0db84e8b5d01893e72"
+  },
+  "experimental_images": {
+    "kk1007": "sha256:a03faca52773864c601d78836ee96dfaed1b6a18b50a58e960efaa6f8e9cebbd"
+  },
   "kv_cache_gib": 20,
-  "default_profile": "tp1+cg4+mxhead"
+  "default_profile": "tp1+cg4+mxhead+kk1007+csf+kv24"
 }

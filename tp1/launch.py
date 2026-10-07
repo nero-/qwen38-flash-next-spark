@@ -13,6 +13,9 @@ from pathlib import Path
 
 from config import load_config, parse_profile
 
+# Images verified to lack vLLM's NVFP4-CSF reader (nightly-20260923).
+NO_CSF_IMAGES = {"sha256:5249a162cd39aa090e803243aef376e1f87f0fd4826f9249ea1ecd0c814b2c7e"}
+
 p = argparse.ArgumentParser()
 p.add_argument("action", choices=["start", "stop", "status", "check"])
 p.add_argument("--profile", default=None)
@@ -21,6 +24,7 @@ home = Path.home()
 config = load_config(Path(__file__).resolve().parent)
 root = home / config["remote_root"]
 model = str(root / "model-5500h")
+images = config.get("experimental_images", {})
 name = "qwen-tp1"
 port = int(config["api_port"])
 if a.action == "stop":
@@ -33,10 +37,21 @@ if a.action == "status":
 selection = root / "selected-profile.txt"
 profile = a.profile or (selection.read_text().strip() if selection.exists() else config["default_profile"])
 try:
-    parsed = parse_profile(profile)
+    parsed = parse_profile(profile, images)
 except ValueError as exc:
     p.error(str(exc))
 flags = parsed["flags"]
+image = images[parsed["image"]] if parsed["image"] else config["image"]
+mounts = [model]
+quantization, load_format = "modelopt_mixed", "b12x"
+if "csf" in flags:
+    # NVFP4-CSF: vLLM serves a metadata directory whose config points at the
+    # compressed checkpoint (prepare_csf.py builds it). Needs a CSF-capable image.
+    if image.split("@")[-1] in NO_CSF_IMAGES:
+        p.error("csf needs an image with the NVFP4-CSF reader; this image has none (add an image modifier)")
+    model = str(root / "serve-csf")
+    mounts = [model, str(root / "model-csf")]
+    quantization = load_format = "nvfp4_csf"
 depth = parsed["mtp"] or 3
 seqs = parsed["seqs"] or 16
 if "resident" in flags and parsed["kv"] is None:
@@ -81,8 +96,8 @@ server = ["-m", "vllm.entrypoints.cli.main", "serve", model,
     "--port", str(port), "--trust-remote-code", "--tensor-parallel-size", "1",
     "--pipeline-parallel-size", "1", "--mamba-cache-mode", "align",
     "--enable-prefix-caching", "--enable-chunked-prefill", "--dtype", "bfloat16",
-    "--kv-cache-dtype", "fp8", "--quantization", "modelopt_mixed", "--block-size", "16",
-    "--load-format", "b12x", "--kv-cache-memory-bytes", str(kv_gib * 2**30),
+    "--kv-cache-dtype", "fp8", "--quantization", quantization, "--block-size", "16",
+    "--load-format", load_format, "--kv-cache-memory-bytes", str(kv_gib * 2**30),
     "--max-model-len", "262144", "--max-num-seqs", str(seqs),
     "--max-num-batched-tokens", "8192", "--speculative-config", json.dumps(spec),
     "--mamba-ssm-cache-dtype", "float32" if "fp32ssm" in flags else "bfloat16",
@@ -96,13 +111,13 @@ server = ["-m", "vllm.entrypoints.cli.main", "serve", model,
 command = ["docker", "run", "--detach", "--name", name, "--gpus", "all",
     "--network", "host", "--ipc", "host", "--security-opt", "seccomp=unconfined",
     "--ulimit", "memlock=-1", "--ulimit", "stack=67108864",
-    "--user", f"{os.getuid()}:{os.getgid()}",
-    "--mount", f"type=bind,src={model},dst={model},readonly",
-    "--mount", f"type=bind,src={cache},dst={home}/.cache",
-    "--entrypoint", "/usr/bin/python3"]
+    "--user", f"{os.getuid()}:{os.getgid()}"]
+for path in mounts:
+    command += ["--mount", f"type=bind,src={path},dst={path},readonly"]
+command += ["--mount", f"type=bind,src={cache},dst={home}/.cache", "--entrypoint", "/usr/bin/python3"]
 for key, value in env.items():
     command += ["--env", f"{key}={value}"]
-command += [config["image"], *server]
+command += [image, *server]
 if a.action == "check":
     print(json.dumps(command, indent=2))
     raise SystemExit()
@@ -113,7 +128,7 @@ cache.mkdir(parents=True, exist_ok=True)
 old = subprocess.run(["docker", "inspect", name], capture_output=True, text=True)
 if old.returncode == 0:
     info = json.loads(old.stdout)[0]
-    expected = json.loads(subprocess.check_output(["docker", "image", "inspect", config["image"]]))[0]["Id"]
+    expected = json.loads(subprocess.check_output(["docker", "image", "inspect", image]))[0]["Id"]
     actual_env = set(info["Config"]["Env"])
     assert info["Image"] == expected and info["Config"]["Cmd"] == server \
         and all(f"{k}={v}" in actual_env for k, v in env.items()), \

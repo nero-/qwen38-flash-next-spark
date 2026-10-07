@@ -14,6 +14,7 @@ parser.add_argument("--guard", action="store_true")
 parser.add_argument("--max-used-gib", type=float)
 args = parser.parse_args()
 root = Path(__file__).resolve().parent / "evidence"
+ROOT_PREFIX = (str(Path(__file__).resolve().parent) + "/").encode()
 root.mkdir(exist_ok=True)
 low = 0
 with (root / (args.tag + "-memory.jsonl")).open("x") as out:
@@ -33,7 +34,8 @@ with (root / (args.tag + "-memory.jsonl")).open("x") as out:
             for proc in Path("/proc").glob("[0-9]*"):
                 try:
                     argv = (proc / "cmdline").read_bytes().split(b"\0")
-                    if b"vllm.entrypoints.cli.main" in argv and str(Path(__file__).resolve().parent / "model-5500h").encode() in argv:
+                    # Any qwen-tp1 server: the hybrid (model-5500h/) or CSF (serve-csf/) checkpoint.
+                    if b"vllm.entrypoints.cli.main" in argv and any(arg.startswith(ROOT_PREFIX) for arg in argv):
                         pid = int(proc.name)
                         os.kill(pid, signal.SIGTERM)
                         killed.append(pid)

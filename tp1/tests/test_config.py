@@ -21,7 +21,7 @@ def arg(cmd, flag):
 class ConfigTests(unittest.TestCase):
     def test_default_profile_parses(self):
         config = load_config(ROOT)
-        parse_profile(config["default_profile"])
+        parse_profile(config["default_profile"], config.get("experimental_images", {}))
 
     def test_profile_parsing(self):
         parsed = parse_profile("tp1+cg4+kv24+mtp4")
@@ -72,6 +72,56 @@ class LaunchCommandTests(unittest.TestCase):
         cmd = command("tp1+resident+kv4")
         self.assertIn("VLLM_PLE_CPU_OFFLOAD=0", cmd)
         self.assertFalse(any(x.startswith("VLLM_PLE_TABLE_MEMORY=") for x in cmd))
+
+
+class CsfAndImageTests(unittest.TestCase):
+    IMG = "eugr/spark-vllm-b12x@sha256:" + "a" * 64
+
+    def test_image_modifier_parses_only_when_configured(self):
+        self.assertEqual(parse_profile("tp1+cg4+n1007", {"n1007": self.IMG})["image"], "n1007")
+        with self.assertRaises(ValueError):
+            parse_profile("tp1+n1007")
+        with self.assertRaises(ValueError):
+            parse_profile("tp1+n1007+n1008", {"n1007": self.IMG, "n1008": self.IMG})
+
+    def test_csf_requires_an_image_modifier(self):
+        result = subprocess.run([sys.executable, str(ROOT / "launch.py"), "check", "--profile", "tp1+csf"],
+                                capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b"NVFP4-CSF reader", result.stderr)
+
+    def test_csf_command_uses_reader_and_mounts_checkpoint(self):
+        import config as config_module
+        data = load_config(ROOT)
+        data["experimental_images"] = {**data["experimental_images"], "n1007": self.IMG}
+        config_module.validate_config(data)
+        # launch.py reads node-config.json; exercise it through a temporary copy.
+        import shutil, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("launch.py", "config.py"):
+                shutil.copy(ROOT / name, Path(tmp) / name)
+            (Path(tmp) / "node-config.json").write_text(json.dumps(data))
+            out = subprocess.check_output([sys.executable, str(Path(tmp) / "launch.py"), "check",
+                                           "--profile", "tp1+cg4+mxhead+csf+n1007+kv23"])
+        cmd = json.loads(out)
+        self.assertEqual(arg(cmd, "--quantization"), "nvfp4_csf")
+        self.assertEqual(arg(cmd, "--load-format"), "nvfp4_csf")
+        self.assertTrue(cmd[cmd.index("serve") + 1].endswith("/serve-csf"))
+        self.assertTrue(any(x.endswith("/model-csf,readonly") for x in cmd))
+        self.assertIn(self.IMG, cmd)
+        self.assertEqual(arg(cmd, "--kv-cache-memory-bytes"), str(23 * 2**30))
+
+    def test_bad_experimental_image_rejected(self):
+        import config as config_module
+        data = load_config(ROOT)
+        configured = data["experimental_images"]
+        data["experimental_images"] = {**configured, "kk": "sha256:" + "b" * 64}
+        config_module.validate_config(data)  # local image ID is accepted
+        for images in ({"cg4": self.IMG}, {"kv24": self.IMG}, {"n1007": "eugr/spark-vllm-b12x:latest"},
+                       {"kk": "qwen-tp1-kk:csf"}):
+            data["experimental_images"] = {**configured, **images}
+            with self.assertRaises(ValueError):
+                config_module.validate_config(data)
 
 
 if __name__ == "__main__":

@@ -1,13 +1,59 @@
 # One DGX Spark (TP1)
 
-Serves the same pinned stack as the [two-Spark deployment](../tp2/README.md) on a single
-DGX Spark / ASUS Ascent GX10: image
-`eugr/spark-vllm-b12x@sha256:5249a162…2c7e` (vLLM `57fdda71b`, b12x 1.3.0) and the
-step-5500 QAD hybrid checkpoint
-[JMNI-Labs/Qwen3.8-Flash-Next-NVFP4-QAD5500-Hybrid](https://huggingface.co/JMNI-Labs/Qwen3.8-Flash-Next-NVFP4-QAD5500-Hybrid)
-at revision `87c8f2fb`, verified against [`../tp2/manifests/model-5500h.sha256`](../tp2/manifests/model-5500h.sha256).
+This model is based on [Qwen3.8-Flash-Next-NVFP4-MXFP8-CSF-QAD](https://huggingface.co/local-inference-lab/Qwen3.8-Flash-Next-NVFP4-MXFP8-CSF-QAD) by Local Inference Lab, Inc., a non-profit organization, available at <https://huggingface.co/local-inference-lab/Qwen3.8-Flash-Next-NVFP4-MXFP8-CSF-QAD>. Qwen3.8-Flash-Next-NVFP4-MXFP8-CSF-QAD is licensed under the Local Inference Lab License, Version 1.0.
 
-## Selected profile: `tp1+cg4+mxhead` — measured 2026-09-28 on gx10-r3
+Serves Qwen3.8-Flash-Next on a single DGX Spark / ASUS Ascent GX10 from the
+NVFP4-CSF container
+[local-inference-lab/Qwen3.8-Flash-Next-NVFP4-MXFP8-CSF-QAD](https://huggingface.co/local-inference-lab/Qwen3.8-Flash-Next-NVFP4-MXFP8-CSF-QAD)
+at revision `ac1c8d8e`, verified file by file against its `SHA256SUMS`, whose own hash is
+pinned in [node-config.json](node-config.json). The container is a lossless re-encoding of
+the step-5500 QAD hybrid the [two-Spark deployment](../tp2/README.md) serves: all 40 source
+shards it records match our hybrid manifest byte for byte, and only the routed experts' E4M3
+block scales are compressed (7.55 → 3.97 GB). Do not reupload or mirror it; link to the
+repository above (LIL License 1.0).
+
+The NVFP4-CSF reader is newer than any published image, so the serving image `kk1007` is
+built locally with eugr's B12X build pinned to vLLM `e07345714` (karmic-kraken), b12x 1.5.0
+`2cc7f66a` and FlashInfer `f8d3729e` (the commit in eugr's `nightly-20261006`); see
+[Serving image](#serving-image).
+
+## Selected profile: `tp1+cg4+mxhead+kk1007+csf+kv24` — measured 2026-10-07 on gx10-r3
+
+The 09-28 profile on the `kk1007` image with the CSF checkpoint, and the memory CSF frees
+put back into KV: **24 GiB FP8 KV = 1,509,026 tokens (5.76 × 262,144)**, up from 1,257,472
+(4.80 ×), at a lower peak than today's deployment. Kernel 6.17.0-1032-nvidia, driver
+580.178.04. Same harness and cells as below; all arms ran in one session. Engine steps/s
+isolates speed from MTP acceptance.
+
+| | Previous (`5249a162`, hybrid, 20 GiB) | `kk1007`, hybrid, 20 GiB | `kk1007`, CSF, 20 GiB | **Selected: CSF, 24 GiB** |
+|---|---:|---:|---:|---:|
+| Prefill 8K / 32K / 64K tok/s | 2410 / 2392 / 2281 | 2444 / 2432 / 2316 | 2385 / 2378 / 2264 | 2393 / 2372 / 2265 |
+| C1 steps/s 8K / 32K / 64K | 17.68 / 17.53 / 17.39 | 18.15 / 17.98 / 17.92 | 18.11 / 17.82 / 17.84 | 17.68 / 17.64 / 17.37 |
+| C1 tok/s 8K / 32K / 64K | 40.7 / 44.0 / 44.2 | 42.1 / 42.4 / 38.1 | 41.5 / 44.6 / 42.2 | 40.9 / 44.9 / 39.0 |
+| C8 steps/s 8K / 32K / 64K | 62.5 / 58.7 / 58.4 | 62.5 / 62.4 / 60.9 | 61.8 / 59.6 / 57.9 | 60.7 / 61.0 / 60.1 |
+| C8 aggregate tok/s | 145.2 / 140.8 / 149.5 | 147.7 / 149.2 / 147.1 | 154.8 / 146.6 / 149.5 | 144.2 / 149.1 / 144.6 |
+| C3 / C5 / C16 (8K, 32K) tok/s | 86.8 / 114.9 / 209.5, 212.5 | 85.8 / 111.9 / 215.1, 216.0 | 87.7 / 114.2 / 212.6, 219.0 | – |
+| Wiki NLL · code NLL · GSM8K · MMLU-Pro | 1.395 · 0.150 · 97.6% · – | 1.396 · 0.150 · 97.6% · 65.2% | 1.397 · 0.150 · 96.8% · 66.2% | (same weights) |
+| Peak used RAM | 114.21 GiB | 112.61 GiB | 109.55 GiB | **113.33 GiB** |
+
+- **CSF is lossless and costs ~2% of prefill.** Against the hybrid on the same image: wiki
+  NLL +0.0006 ± 0.0020, code +0.0008 ± 0.0013, GSM8K two questions differ, MMLU-Pro 32 vs 22
+  discordant in CSF's favor (McNemar p = 0.22). Prefill is 2.2–2.4% slower at every context,
+  consistent with expanding scales into the shared 150 MiB scratch before large prefill
+  batches; decode steps are flat to noisy (±5% single cells).
+- **The new image** is equal or slightly faster than `5249a162` on the hybrid (C1 steps
+  +2–3%) with the same quality, and peaks 1.6 GiB lower.
+- **Memory:** CSF + new image peak 4.66 GiB below today's deployment at 20 GiB KV; 24 GiB
+  KV brings the peak back to 113.33 GiB, under the previous 114.21. The previous
+  deployment's baseline MMLU-Pro run was stopped before completing; its paired NLL/GSM8K
+  against the selected weights is +0.0015 ± 0.0018 / +0.0007 ± 0.0012 / 3 vs 1 discordant.
+- A 5 × 258K concurrent-session capacity check at 24 GiB was not run.
+
+Receipts: [`results/tp1-csf-20261007/`](../results/tp1-csf-20261007/summary.json)
+(harness reports, the image's build metadata, generated summary); full evidence on the Spark
+under `~/builds/qwen-tp1/evidence/` with tags `c2base-*`, `c2-*` and `final-kv24`.
+
+## Previous selection: `tp1+cg4+mxhead` — measured 2026-09-28 on gx10-r3
 
 Base `tp1` plus exact MTP3 CUDA-graph sizes (`cg4`) and MXFP8 target LM-head weights
 (`mxhead`). 20 GiB FP8 KV = **1,257,472 tokens (4.8 × 262,144)**; peak system RAM under
@@ -61,18 +107,46 @@ are on the Spark under `~/builds/qwen-tp1/evidence/` with tags `c1-tp1`, `c1-tp1
 ## Install
 
 Prerequisites on the Spark: NVIDIA driver + Container Toolkit, Docker usable by the
-serving user, Python 3 with `venv`, `git`, ~110 GiB free disk. From the Mac, set `ssh` in
-[node-config.json](node-config.json) to the Spark, then:
+serving user, Python 3 with `venv`, `git`, ~130 GiB free disk (96 GiB checkpoint, 25 GB
+image). From the Mac, set `ssh` in [node-config.json](node-config.json) to the Spark, then:
 
 ```bash
-bash tp1/bootstrap.sh     # copy package, pull image, download + verify checkpoint, install harness
-bash tp1/preflight.sh     # read-only check
+bash tp1/bootstrap.sh     # copy package, check/pull image, download + verify checkpoint, install harness
+bash tp1/preflight.sh     # read-only check of the selected profile's image and checkpoint
 ./spark1-ctl.sh start && ./spark1-ctl.sh wait
 ```
 
-Bootstrap never starts a server and refuses to run while `qwen-tp1` or `qwen-tp2` is
-running on the host. The checkpoint is public; set `HF_TOKEN` on the Spark only if you
-point the config at a gated snapshot.
+Bootstrap fetches what the default profile needs: the CSF container (verified against
+`SHA256SUMS`, then `serve-csf/` built by [prepare_csf.py](prepare_csf.py)), or the hybrid
+for non-`csf` profiles (`--all-models` fetches both). The `kk1007` image is a local build:
+on a Spark without it, bootstrap stops and points at
+[images/build-kk-csf.sh](images/build-kk-csf.sh). Bootstrap never starts a server and
+refuses to run while `qwen-tp1` or `qwen-tp2` is running on the host. Both checkpoints are
+public; set `HF_TOKEN` on the Spark only for a gated snapshot.
+
+## Serving image
+
+`kk1007` is pinned in `node-config.json` by its local image ID (`sha256:a03faca5…`). To
+rebuild it, stop `qwen-tp1` and run on the Spark:
+
+```bash
+bash ~/builds/qwen-tp1/images/build-kk-csf.sh   # ~95 min; vLLM and FlashInfer compile
+```
+
+The script checks out [eugr/spark-vllm-docker](https://github.com/eugr/spark-vllm-docker) at
+`73f01ce`, pins InstantTensor to 0.2.0 (0.2.1, released 2026-10-06, breaks eugr's
+InstantTensor patch step), pins vLLM and b12x to the commits above instead of the branch
+heads, runs eugr's `--exp-b12x --rebuild-vllm` build with FlashInfer `f8d3729e`, and checks
+the image for the pinned commits and the CSF reader. A rebuild gets a new image ID; update
+`experimental_images.kk1007`. The deployed image was built in two steps (the same build,
+then the runner stage again after the InstantTensor pin) from identical inputs; the
+one-pass script has not been run end to end. Once an eugr nightly carries the CSF reader,
+pin it by digest instead.
+
+To go back to the hybrid, select a profile without `csf` (bootstrap or `download_model.py
+hybrid` fetches it), or restore the original shards from the container with LIL's
+`trellis_quant.lossless_scale_checkpoint restore`. Profiles without an image modifier use
+`eugr/spark-vllm-b12x@sha256:5249a162…`, which Docker pulls on demand.
 
 ## Operate
 
@@ -103,6 +177,8 @@ prompt. Modifiers each change one axis:
 | `greedyspec` | vLLM default draft/rejection sampling (the earlier TP1 setting) |
 | `fp32ssm` | checkpoint-native FP32 recurrent state |
 | `resident` | PLE table resident in memory; requires an explicit `kvN` |
+| `csf` | serve the NVFP4-CSF container (`--quantization nvfp4_csf --load-format nvfp4_csf`); needs an image with the reader |
+| `kk1007` | serving image from `experimental_images` (the locally built CSF image) |
 | `kvN` | N GiB FP8 KV instead of `kv_cache_gib` |
 | `mtpN` | N speculative tokens |
 | `seqsN` | N max concurrent sequences |
