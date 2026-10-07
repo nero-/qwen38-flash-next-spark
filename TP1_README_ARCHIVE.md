@@ -1,3 +1,5 @@
+> **Removed scripts:** the TP1 source-build scripts this record cites (`serve.sh`, `smoke.sh`, `coding_bench.sh`, `diagnostics/`) were removed on 2026-10-07; they remain in git history at commit `d2c57ee`. The current single-Spark deployment is [tp1/](tp1/README.md).
+
 > **TP2 deployment:** Both Sparks use resident PLE and the `hc-adaptive` MTP3 default (`hc` is the backup).
 
 Final cable trial (2026-09-24): **two cables selected, adaptive HC/MTP3 unchanged**. Large collective times improved 4–6%; model results were modest and mixed. [Measured comparison and one-cable fallback](tp2/optimization/CABLES.md).

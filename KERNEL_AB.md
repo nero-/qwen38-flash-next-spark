@@ -1,3 +1,5 @@
+> **Removed scripts:** the TP1 source-build scripts this record cites (`serve.sh`, `smoke.sh`, `coding_bench.sh`, `diagnostics/`) were removed on 2026-10-07; they remain in git history at commit `d2c57ee`. The current single-Spark deployment is [tp1/](tp1/README.md).
+
 # Kernel-only comparison
 
 The current Spark runs `7.0.0-1019-nvidia`, NVIDIA driver `580.178.04`, Secure Boot enabled. Its existing boot parameters already include `kho=off`. NVIDIA's September advisory confirms problems with this kernel for multi-node NCCL/RoCE workloads; it does not establish a TP1 inference slowdown on this machine.

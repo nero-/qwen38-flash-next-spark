@@ -1,3 +1,5 @@
+> **Removed scripts:** the TP1 source-build scripts this record cites (`serve.sh`, `smoke.sh`, `coding_bench.sh`, `diagnostics/`) were removed on 2026-10-07; they remain in git history at commit `d2c57ee`. The current single-Spark deployment is [tp1/](tp1/README.md).
+
 # Performance audit — 2026-09-22 UTC
 
 > Historical investigation record. At the user's request, older raw benchmarks
